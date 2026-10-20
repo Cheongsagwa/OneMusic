@@ -37,7 +37,7 @@ public sealed class DetailView : ScrollPage
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(Left - 12, 8, 0, 0),
         };
-        ToolTipService.SetToolTip(back, "뒤로");
+        Tip.Set(back, "뒤로");
         back.Click += () => BackRequested?.Invoke();
         Body.Children.Add(back);
         _status.Margin = new Thickness(Left, 24, 0, 0);
@@ -328,7 +328,7 @@ public sealed class DetailView : ScrollPage
         grid.Children.Add(Theme.Icon(icon, primary ? 30 : 20, primary ? Colors.Black : Colors.White, stroke: stroke, strokeWidth: 2));
         b.Content = grid;
         if (primary) b.HoverBrush = new SolidColorBrush(Colors.Transparent);
-        ToolTipService.SetToolTip(b, tip);
+        Tip.Set(b, tip);
         b.Click += click;
         return b;
     }

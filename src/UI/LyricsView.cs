@@ -313,7 +313,7 @@ public sealed class LyricsSourceBar : Grid
         _center.Children.Add(name);
         var preferred = Settings.Current.LyricsSource == s.Source;
         var star = new IconButton(28) { Content = Theme.Icon(Icons.Star, 20, Colors.White, stroke: !preferred, strokeWidth: 1.6) };
-        ToolTipService.SetToolTip(star, preferred ? "기본 가사 출처" : "기본 가사 출처로 정하기");
+        Tip.Set(star, preferred ? "기본 가사 출처" : "기본 가사 출처로 정하기");
         var src = s.Source;
         star.Click += () => LyricsState.Instance.SetPreferred(src);
         _center.Children.Add(star);

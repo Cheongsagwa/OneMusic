@@ -45,7 +45,7 @@ public sealed class AvToggle : Grid
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         var song = new Border { Width = 56, Height = 36, CornerRadius = new CornerRadius(18), Background = Theme.B(Theme.Selected), Child = Theme.Icon(20, Colors.White, Icons.Headphones) };
         var video = new Border { Width = 56, Height = 36, CornerRadius = new CornerRadius(18), Child = Theme.Icon(20, Theme.Secondary, Icons.Video), Opacity = 0.5 };
-        ToolTipService.SetToolTip(video, "동영상 재생은 준비 중이에요");
+        Tip.Set(video, "동영상 재생은 준비 중이에요");
         row.Children.Add(song);
         row.Children.Add(video);
         Children.Add(row);

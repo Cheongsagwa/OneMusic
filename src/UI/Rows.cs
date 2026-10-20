@@ -69,7 +69,7 @@ public sealed class TrackRow : Grid
         dur.HorizontalAlignment = HorizontalAlignment.Right;
         // 마우스를 올리면 길이 자리에 ⋮ (pear 재생 목록 줄)
         var more = new IconButton(36) { Content = Theme.Icon(Icons.More, 22, Colors.White), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, -6, 0) };
-        ToolTipService.SetToolTip(more, "작업 메뉴");
+        Tip.Set(more, "작업 메뉴");
         more.Click += () => TrackMenu.Show(more, Track, QueueIndex);
         Anim.V(more).Opacity = 0;
         more.IsHitTestVisible = false;

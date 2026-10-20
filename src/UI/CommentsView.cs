@@ -22,6 +22,7 @@ public sealed class CommentsView : Grid
         _header.Margin = new Thickness(4, 16, 8, 8);
         Children.Add(_header);
         _scroll.Content = _list;
+        ListFade.Attach(_scroll);
         SetRow(_scroll, 1);
         Children.Add(_scroll);
         _scroll.ViewChanged += (_, _) =>

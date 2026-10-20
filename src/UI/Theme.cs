@@ -109,11 +109,13 @@ public static class Theme
         return new Viewbox { Width = size, Height = size, Child = canvas, IsHitTestVisible = false };
     }
 
-    public static BitmapImage Image(string? url, int decodeWidth)
+    /// <summary>
+    /// 썸네일 주소를 크기에 맞게 고치고, 동영상 썸네일(hqdefault 등 4:3 — 위아래 검은 띠)은 띠 없는 16:9(hq720) 로.
+    /// fallback 은 hq720 이 없을 때 쓸 mqdefault
+    /// </summary>
+    public static (string? Url, string? Fallback) ImageUrl(string? url, int decodeWidth)
     {
-        var bmp = new BitmapImage { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Logical };
         var u = Core.Fmt.Thumb(url, Math.Max(decodeWidth * 2, 120));
-        // 동영상 썸네일(hqdefault 등 4:3)은 위아래에 검은 띠가 있다 → 띠 없는 16:9(hq720), 없으면 mqdefault
         string? fallback = null;
         if (u != null)
         {
@@ -124,7 +126,14 @@ public static class Theme
                 u = $"https://i.ytimg.com/vi/{m.Groups[1].Value}/hq720.jpg";
             }
         }
-        if (!string.IsNullOrEmpty(u) && Uri.TryCreate(u, UriKind.Absolute, out var uri)) bmp.UriSource = uri;
+        return (string.IsNullOrEmpty(u) ? null : u, fallback);
+    }
+
+    public static BitmapImage Image(string? url, int decodeWidth)
+    {
+        var bmp = new BitmapImage { DecodePixelWidth = decodeWidth, DecodePixelType = DecodePixelType.Logical };
+        var (u, fallback) = ImageUrl(url, decodeWidth);
+        if (u != null && Uri.TryCreate(u, UriKind.Absolute, out var uri)) bmp.UriSource = uri;
         if (fallback != null)
             bmp.ImageFailed += (_, _) =>
             {

@@ -48,7 +48,7 @@ public class ScrollPage : Grid
         HorizontalScrollMode = ScrollMode.Disabled,
     };
     protected readonly StackPanel Body = new();
-    private readonly XRect _fadeTop, _fadeBottom;
+    private readonly WashFade _fadeTop, _fadeBottom;
     private bool _topShown, _bottomShown = true;
 
     /// <summary>내용 왼쪽 여백 — pear 의 셸프 시작점(레일 72 + 106)</summary>
@@ -67,20 +67,12 @@ public class ScrollPage : Grid
         Anim.V(_fadeTop).Opacity = 0;
     }
 
-    private static XRect Fade(bool top)
+    /// <summary>위 44 · 아래(재생 바 높이 + 여백 + 40) — 앨범 색 배경을 그대로 비춘 흐림 덮개 (pear oneui-page-fade)</summary>
+    private static WashFade Fade(bool top) => new(top)
     {
-        var brush = new LinearGradientBrush { StartPoint = new Point(0, top ? 0 : 1), EndPoint = new Point(0, top ? 1 : 0) };
-        brush.GradientStops.Add(new GradientStop { Color = Theme.Bg, Offset = 0 });
-        brush.GradientStops.Add(new GradientStop { Color = Theme.Bg.WithAlpha(0), Offset = 1 });
-        return new XRect
-        {
-            Height = top ? 44 : Theme.BarHeight + Theme.FloatGap * 2 + 40,
-            VerticalAlignment = top ? VerticalAlignment.Top : VerticalAlignment.Bottom,
-            Fill = brush,
-            Opacity = top ? 1 : 0.85,
-            IsHitTestVisible = false,
-        };
-    }
+        Height = top ? 44 : Theme.BarHeight + Theme.FloatGap * 2 + 40,
+        VerticalAlignment = top ? VerticalAlignment.Top : VerticalAlignment.Bottom,
+    };
 
     private void UpdateFades()
     {
@@ -326,6 +318,8 @@ public sealed class ShelvesView : ScrollPage
         };
         row = new StackPanel { Orientation = Orientation.Horizontal };
         sv.Content = row;
+        // 더 넘길 내용이 있는 쪽 끝을 흐린다 (pear: 메인 가로 목록 56px)
+        ListFade.Attach(sv, horizontal: true, start: 56, end: 56);
         // 마우스 휠은 가로로 넘기지 않고 화면을 위아래로 (가로는 ‹ › 버튼으로)
         return sv;
     }
@@ -630,7 +624,7 @@ public sealed class SearchView : ScrollPage
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
         buttons.Children.Add(Pill(it.Track != null ? "재생" : "열기", true, Icons.Play, () => Open(it, new())));
         var save = Pill("저장", false, null, () => { });
-        ToolTipService.SetToolTip(save, "재생목록에 저장은 준비 중이에요");
+        Tip.Set(save, "재생목록에 저장은 준비 중이에요");
         buttons.Children.Add(save);
         Grid.SetColumn(buttons, 2);
         g.Children.Add(buttons);

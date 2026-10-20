@@ -112,6 +112,42 @@ public static class Anim
         v.StartAnimation("Translation", Vec(v.Compositor, Vector3.Zero, Ease, Medium, delayMs));
     }
 
+    private static CompositionEasingFunction? _decel;
+    /// <summary>cubic-bezier(0.22, 1, 0.36, 1) — 재생 화면 전환 · 아이콘 전환의 '튕김 없는 우아한 감속'</summary>
+    public static CompositionEasingFunction Decel(Compositor c) =>
+        _decel ??= c.CreateCubicBezierEasingFunction(new Vector2(0.22f, 1f), new Vector2(0.36f, 1f));
+
+    /// <summary>위치를 우아한 감속으로 (재생 화면 올라오기 640ms)</summary>
+    public static void Slide(UIElement el, Vector3 to, int ms)
+    {
+        ElementCompositionPreview.SetIsTranslationEnabled(el, true);
+        var v = V(el);
+        var a = v.Compositor.CreateVector3KeyFrameAnimation();
+        a.InsertKeyFrame(1f, to, Decel(v.Compositor));
+        a.Duration = TimeSpan.FromMilliseconds(ms);
+        v.StartAnimation("Translation", a);
+    }
+
+    /// <summary>pear oneui-rise 720ms cubic-bezier(.22,1,.36,1): 14px 아래에서 떠오르며 나타남</summary>
+    public static void Rise(UIElement el, int delayMs, int ms = 720)
+    {
+        var v = V(el);
+        var c = v.Compositor;
+        v.Opacity = 0;
+        SetTranslation(el, new Vector3(0, 14, 0));
+        var o = c.CreateScalarKeyFrameAnimation();
+        o.InsertKeyFrame(1f, 1f, Decel(c));
+        o.Duration = TimeSpan.FromMilliseconds(ms);
+        o.DelayTime = TimeSpan.FromMilliseconds(delayMs);
+        o.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
+        v.StartAnimation("Opacity", o);
+        var t = c.CreateVector3KeyFrameAnimation();
+        t.InsertKeyFrame(1f, Vector3.Zero, Decel(c));
+        t.Duration = TimeSpan.FromMilliseconds(ms);
+        t.DelayTime = TimeSpan.FromMilliseconds(delayMs);
+        v.StartAnimation("Translation", t);
+    }
+
     /// <summary>나타날 때 — pear 의 oneui-pop: 0.92 에서 커지며 (메뉴 · 팝업)</summary>
     public static void Pop(UIElement el, int delayMs = 0)
     {

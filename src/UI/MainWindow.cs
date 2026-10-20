@@ -60,6 +60,9 @@ public sealed class MainWindow : Window
     private void Build()
     {
         Root.Background = Theme.B(Theme.Bg);
+        // 바탕색 + 앨범 색 번짐을 한 층에 — 스크롤 흐림 덮개(WashFade)가 이 층을 그대로 비춰 그린다
+        _wash.Background = Theme.B(Theme.Bg);
+        WashFade.Source = _wash;
         Root.RequestedTheme = ElementTheme.Dark;
         Root.Children.Add(_wash);
         Root.SizeChanged += (_, _) => SetWash(_accent, false);
@@ -97,12 +100,12 @@ public sealed class MainWindow : Window
         _fwdBtn = new IconButton(40) { Content = Theme.Icon(Icons.ChevronRight, 24, Colors.White, stroke: true, strokeWidth: 2) };
         _backBtn.Click += Back;
         _fwdBtn.Click += Forward;
-        ToolTipService.SetToolTip(_backBtn, "뒤로");
-        ToolTipService.SetToolTip(_fwdBtn, "앞으로");
+        Tip.Set(_backBtn, "뒤로");
+        Tip.Set(_fwdBtn, "앞으로");
         rightBar.Children.Add(_backBtn);
         rightBar.Children.Add(_fwdBtn);
         var settings = new IconButton(40) { Content = Theme.Icon(24, Colors.White, Icons.Settings), Margin = new Thickness(16, 0, 0, 0) };
-        ToolTipService.SetToolTip(settings, "계정");
+        Tip.Set(settings, "계정");
         var flyout = new MenuFlyout();
         var logout = new MenuFlyoutItem { Text = "로그아웃" };
         logout.Click += (_, _) => { Auth.Logout(); ReloadAll(); };
@@ -148,6 +151,7 @@ public sealed class MainWindow : Window
         Bar.OpenPlayer += TogglePlayer;
         Root.Children.Add(Bar);
         Toast.Attach(Root);
+        Tip.Attach(Root);
         OneMenu.Attach(Root);
 
         Content = Root;

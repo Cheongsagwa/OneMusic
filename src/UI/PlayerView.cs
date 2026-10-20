@@ -72,9 +72,8 @@ public sealed class PillTabs : Grid
 public sealed class PlayerView : Grid
 {
     private readonly PlayerService _p = PlayerService.Instance;
-    private readonly Border _art = new() { CornerRadius = new CornerRadius(Theme.RadiusCard), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
-    private readonly Image _artImg = new() { Stretch = Stretch.UniformToFill };
-    private readonly Image _artOld = new() { Stretch = Stretch.UniformToFill };
+    private readonly Border _art = new() { CornerRadius = new CornerRadius(Theme.RadiusCard) };
+    private readonly ArtView _artView = new((float)Theme.RadiusCard, 670);
     private readonly Grid _artBox = new() { Width = 670, Height = 648 };
     private readonly PillTabs _tabs = new("다음 트랙", "가사", "댓글", "관련 항목");
     private readonly StackPanel _queue = new();
@@ -91,6 +90,7 @@ public sealed class PlayerView : Grid
     private string? _relatedFor;
     private readonly List<TrackRow> _rows = new();
     private readonly Grid _panel;
+    private readonly Grid _left = new();
     public bool IsOpen { get; private set; }
     public event Action? CloseRequested;
 
@@ -103,15 +103,12 @@ public sealed class PlayerView : Grid
         ColumnSpacing = 56;
 
         // ── 왼쪽: 노래/동영상 + 앨범아트 ──
-        var left = new Grid();
+        var left = _left;
         left.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         left.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var av = new AvToggle { Margin = new Thickness(0, 0, 0, 24) };
         left.Children.Add(av);
-        var artGrid = new Grid();
-        artGrid.Children.Add(_artOld);
-        artGrid.Children.Add(_artImg);
-        _art.Child = artGrid;
+        _art.Child = _artView;
         _artBox.Children.Add(_art);
         var artHolder = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, VerticalAlignment = VerticalAlignment.Center, Child = _artBox };
         _art.Shadow = new ThemeShadow();
@@ -148,7 +145,7 @@ public sealed class PlayerView : Grid
         saveText.VerticalAlignment = VerticalAlignment.Center;
         saveRow.Children.Add(saveText);
         save.Child = saveRow;
-        ToolTipService.SetToolTip(save, "재생목록으로 저장은 준비 중이에요");
+        Tip.Set(save, "재생목록으로 저장은 준비 중이에요");
         Anim.Pressable(save);
         head.Children.Add(save);
         _queueTab.Children.Add(head);
@@ -170,6 +167,8 @@ public sealed class PlayerView : Grid
         Grid.SetRow(autoRow, 1);
         _queueTab.Children.Add(autoRow);
         _queueScroll.Content = _queue;
+        // 패널 안 목록도 더 있는 쪽 끝을 흐린다 (pear scroll-fade: 위 44 · 아래 56)
+        ListFade.Attach(_queueScroll);
         Grid.SetRow(_queueScroll, 2);
         _queueTab.Children.Add(_queueScroll);
         content.Children.Add(_queueTab);
@@ -183,6 +182,7 @@ public sealed class PlayerView : Grid
         content.Children.Add(_lyricsTab);
         content.Children.Add(_comments);
         _related.Content = _relatedList;
+        ListFade.Attach(_related);
         content.Children.Add(_related);
         Grid.SetRow(content, 1);
         _panel.Children.Add(content);
@@ -216,13 +216,14 @@ public sealed class PlayerView : Grid
         if (IsOpen) return;
         IsOpen = true;
         Visibility = Visibility.Visible;
+        // pear 64: 화면은 640ms 우아한 감속으로 올라오고, 왼쪽 · 오른쪽 패널은 720ms 동안 떠오른다(오른쪽 60ms 늦게)
         var h = (float)Math.Max(300, ActualHeight * 0.35);
         Anim.V(this).Opacity = 0;
         Anim.SetTranslation(this, new Vector3(0, h, 0));
-        Anim.Translate(this, Vector3.Zero, 0.82f, 70);
+        Anim.Slide(this, Vector3.Zero, 640);
         Anim.Opacity(this, 1, 300);
-        // 패널은 살짝 늦게 떠오른다 (pear: 60ms 지연)
-        Anim.Appear(_panel, 60, 40);
+        Anim.Rise(_left, 0);
+        Anim.Rise(_panel, 60);
         _lyrics.Active = _tabs.Selected == 1;
         ScrollToCurrent();
     }
@@ -232,7 +233,7 @@ public sealed class PlayerView : Grid
         if (!IsOpen) return;
         IsOpen = false;
         _lyrics.Active = false;
-        Anim.Translate(this, new Vector3(0, (float)Math.Max(300, ActualHeight * 0.35), 0), 1f, 60);
+        Anim.Slide(this, new Vector3(0, (float)Math.Max(300, ActualHeight * 0.35), 0), 640);
         Anim.Opacity(this, 0, 240);
         await Task.Delay(320);
         if (!IsOpen) Visibility = Visibility.Collapsed;
@@ -245,17 +246,7 @@ public sealed class PlayerView : Grid
         // 뮤직비디오 · 동영상(16:9 썸네일)은 자르지 않고 16:9 그대로 (pear 와 같게), 노래는 670×648. 둘 다 세로 가운데
         var wide = t?.Thumb?.Contains("ytimg.com") == true;
         _artBox.Height = wide ? 377 : 648;
-        _artOld.Source = _artImg.Source;
-        var bmp = Theme.Image(t?.Thumb, 670);
-        Anim.V(_artImg).Opacity = 0;
-        bmp.ImageOpened += (_, _) =>
-        {
-            Anim.V(_artImg).CenterPoint = new Vector3(335, (float)_artBox.Height / 2, 0);
-            Anim.V(_artImg).Scale = new Vector3(1.04f, 1.04f, 1);
-            Anim.Scale(_artImg, 1f, 0.9f, 110);
-            Anim.Opacity(_artImg, 1, 700);
-        };
-        _artImg.Source = bmp;
+        _artView.Show(t?.Thumb);
         for (var i = 0; i < _rows.Count; i++) _rows[i].SetCurrent(i == _p.Index);
         _relatedFor = null;
         if (_tabs.Selected == 3) LoadRelated();

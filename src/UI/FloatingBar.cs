@@ -13,9 +13,7 @@ public sealed class FloatingBar : Grid
     private readonly PlayerService _p = PlayerService.Instance;
     private readonly WaveSeekBar _wave = new();
     private readonly TextBlock _time = Theme.Text("0:00 / 0:00", 15, FontWeights.SemiBold, Theme.Secondary);
-    private readonly Border _art = new() { Width = 52, Height = 52, CornerRadius = new CornerRadius(12), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
-    private readonly Image _artImg = new() { Stretch = Stretch.UniformToFill };
-    private readonly Image _artOld = new() { Stretch = Stretch.UniformToFill };
+    private readonly ArtView _art = new(12, 104) { Width = 52, Height = 52 };
     private readonly Marquee _title = new(18, FontWeights.Bold, Theme.OnSurface);
     private readonly Marquee _artist = new(15, FontWeights.Normal, Theme.Secondary);
     private readonly Border _lyric = new() { Height = 36, Width = 0, CornerRadius = new CornerRadius(18), Background = Theme.B(Theme.Chip), Margin = new Thickness(0) };
@@ -92,10 +90,6 @@ public sealed class FloatingBar : Grid
 
         // ── 가운데 ──
         var mid = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        var artGrid = new Grid();
-        artGrid.Children.Add(_artOld);
-        artGrid.Children.Add(_artImg);
-        _art.Child = artGrid;
         _art.Tapped += (_, _) => OpenPlayer?.Invoke();
         Anim.Pressable(_art);
         var info = new StackPanel { Width = 240, Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
@@ -151,11 +145,11 @@ public sealed class FloatingBar : Grid
             _p.Shuffle();
             _shuf.Run();
         };
-        ToolTipService.SetToolTip(_shuffle, "셔플");
-        ToolTipService.SetToolTip(_repeat, "반복");
-        ToolTipService.SetToolTip(_volume, "음소거");
-        ToolTipService.SetToolTip(prev, "이전");
-        ToolTipService.SetToolTip(next, "다음");
+        Tip.Set(_shuffle, "셔플");
+        Tip.Set(_repeat, "반복");
+        Tip.Set(_volume, "음소거");
+        Tip.Set(prev, "이전");
+        Tip.Set(next, "다음");
         var open = new IconButton(36);
         open.HoverBrush = Theme.B(Colors.Transparent);
         var openGrid = new Grid();
@@ -163,7 +157,7 @@ public sealed class FloatingBar : Grid
         _openGlyph = Theme.Icon(Icons.ChevronUp, 20, Colors.Black, stroke: true, strokeWidth: 2.2);
         openGrid.Children.Add(_openGlyph);
         open.Content = openGrid;
-        ToolTipService.SetToolTip(open, "재생 화면 열기");
+        Tip.Set(open, "재생 화면 열기");
         open.Click += () => OpenPlayer?.Invoke();
         right.Children.Add(_volSlider);
         right.Children.Add(_volume);
@@ -207,17 +201,8 @@ public sealed class FloatingBar : Grid
         var t = _p.Current;
         _title.Text = t?.Title ?? "재생 중인 곡 없음";
         _artist.Text = t?.Artist ?? "";
-        // 이전 아트를 아래에 남겨 두고, 새 아트를 다 불러오면 가운데부터 번지듯 페이드인
-        _artOld.Source = _artImg.Source;
-        var bmp = Theme.Image(t?.Thumb, 104);
-        Anim.V(_artImg).Opacity = 0;
-        bmp.ImageOpened += (_, _) =>
-        {
-            Anim.V(_artImg).Scale = new Vector3(1.06f, 1.06f, 1);
-            Anim.Scale(_artImg, 1f, 0.9f, 90);
-            Anim.Opacity(_artImg, 1, 520);
-        };
-        _artImg.Source = bmp;
+        // 이전 아트를 받침에 깔아 두고, 새 아트를 다 불러오면 가운데부터 번지듯 드러낸다 (ArtView)
+        _art.Show(t?.Thumb);
         _shownLine = null;
     }
 
