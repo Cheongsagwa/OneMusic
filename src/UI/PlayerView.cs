@@ -84,7 +84,7 @@ public sealed class PlayerView : Grid
     private readonly OneToggle _autoplay;
     private Grid _autoRow = null!;
     private readonly LyricsView _lyrics = new();
-    private readonly Grid _comments = new();
+    private readonly CommentsView _comments = new();
     private readonly ScrollViewer _related = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
     private readonly StackPanel _relatedList = new() { Spacing = 8 };
     private string? _relatedFor;
@@ -174,10 +174,6 @@ public sealed class PlayerView : Grid
         content.Children.Add(_queueTab);
 
         content.Children.Add(_lyrics);
-        var cm = Theme.Text("댓글은 준비 중이에요", 15, FontWeights.SemiBold, Theme.Secondary);
-        cm.HorizontalAlignment = HorizontalAlignment.Center;
-        cm.VerticalAlignment = VerticalAlignment.Center;
-        _comments.Children.Add(cm);
         content.Children.Add(_comments);
         _related.Content = _relatedList;
         content.Children.Add(_related);
@@ -202,6 +198,7 @@ public sealed class PlayerView : Grid
         for (var k = 0; k < views.Length; k++) views[k].Visibility = k == i ? Visibility.Visible : Visibility.Collapsed;
         _lyrics.Active = i == 1 && IsOpen;
         Anim.Appear(views[i], 0, 10);
+        if (i == 2) _comments.Load(_p.Current?.VideoId);
         if (i == 3) LoadRelated();
     }
 
@@ -254,6 +251,7 @@ public sealed class PlayerView : Grid
         for (var i = 0; i < _rows.Count; i++) _rows[i].SetCurrent(i == _p.Index);
         _relatedFor = null;
         if (_tabs.Selected == 3) LoadRelated();
+        if (_tabs.Selected == 2) _comments.Load(t?.VideoId);
         ScrollToCurrent();
     }
 
@@ -380,23 +378,39 @@ public sealed class PlayerView : Grid
             var shelves = await InnerTube.Instance.BrowseShelves(id);
             if (_relatedFor != id) return;
             _relatedList.Children.Clear();
-            foreach (var s in shelves.Take(6))
+            // pear 관련 항목: 셸프 제목 + ‹ ›, 곡은 4줄 × 2칸씩 넘기는 격자, 나머지는 카드(플레이리스트는 동그라미)
+            foreach (var s in shelves.Take(8))
             {
-                var title = Theme.Text(s.Title, 18, FontWeights.ExtraBold, Theme.OnSurface);
-                title.Margin = new Thickness(8, 12, 8, 4);
-                _relatedList.Children.Add(title);
-                var items = s.Tracks ?? s.Items.Select(c => new Track(c.VideoId ?? "", c.Title, InnerTube.StripType(c.Subtitle), null, c.Thumb, 0)).ToList();
-                foreach (var (t, i) in items.Take(8).Select((t, i) => (t, i)))
+                var head = new Grid { Margin = new Thickness(4, 16, 0, 8) };
+                head.Children.Add(Theme.Text(s.Title, 22, FontWeights.ExtraBold, Theme.OnSurface));
+                var sv = ShelvesView.HorizontalRow(out var row);
+                row.Spacing = 16;
+                row.Padding = new Thickness(4, 0, 4, 4);
+                if (s.Tracks != null && s.Tracks.Count == s.Items.Count)
                 {
-                    var card = s.Items.ElementAtOrDefault(i);
-                    var row = new TrackRow(t, divider: false);
-                    row.Click += r =>
+                    for (var k = 0; k < s.Tracks.Count; k += 4)
                     {
-                        if (s.Tracks != null) _ = _p.PlaySong(r.Track);
-                        else if (card != null) Play.Card(card, s);
-                    };
-                    _relatedList.Children.Add(row);
+                        var col = new StackPanel { Width = 196, Spacing = 16 };
+                        foreach (var t in s.Tracks.Skip(k).Take(4)) col.Children.Add(ShelvesView.QuickRow(t, 196));
+                        row.Children.Add(col);
+                    }
                 }
+                else
+                {
+                    foreach (var c in s.Items)
+                    {
+                        var round = c.PageType is "MUSIC_PAGE_TYPE_PLAYLIST" or "MUSIC_PAGE_TYPE_ARTIST" || c.BrowseId?.StartsWith("VL") == true;
+                        var card = new CardView(c, 160, square: true, round: round);
+                        card.Click += cc => Play.Card(cc, s);
+                        row.Children.Add(card);
+                    }
+                }
+                var arrows = ShelvesView.ShelfArrows(sv);
+                arrows.Margin = new Thickness(0, 0, 4, 0);
+                arrows.VerticalAlignment = VerticalAlignment.Center;
+                head.Children.Add(arrows);
+                _relatedList.Children.Add(head);
+                _relatedList.Children.Add(sv);
             }
             _relatedList.Children.Add(new Border { Height = 16 });
         }

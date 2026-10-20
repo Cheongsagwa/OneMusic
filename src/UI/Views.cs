@@ -200,20 +200,23 @@ public sealed class ShelvesView : ScrollPage
         {
             List<Shelf> shelves;
             List<Chip> chips = new();
+            List<NavButton> buttons = new();
             if (_withChips)
             {
                 var home = await InnerTube.Instance.Home(_chipBrowse ?? _browseId, _chipParams);
                 shelves = home.Shelves;
                 chips = home.Chips;
+                buttons = home.Buttons;
                 _more = home.Continuation;
             }
             else shelves = await InnerTube.Instance.BrowseShelves(_browseId);
             Body.Children.Clear();
             if (chips.Count > 0) Body.Children.Add(BuildChips(chips));
+            if (buttons.Count > 0) Body.Children.Add(BuildButtons(buttons));
             // 보관함 맨 위: 오프라인 저장한 곡
             if (_browseId == "FEmusic_library_landing" && _chipBrowse == null && Offline.Instance.Tracks is { Count: > 0 } saved)
                 shelves.Insert(0, new Shelf("오프라인 저장", saved.Select(t => new Card(t.Title, t.Artist, t.Thumb, false, t.VideoId, null, null)).ToList(), saved.ToList()));
-            if (shelves.Count == 0)
+            if (shelves.Count == 0 && buttons.Count == 0)
             {
                 _status.Text = "보여 줄 내용이 없어요.";
                 Body.Children.Add(_status);
@@ -237,6 +240,45 @@ public sealed class ShelvesView : ScrollPage
             _status.Text = "불러오지 못했어요. 인터넷 연결을 확인해 주세요.";
             _loaded = false;
         }
+    }
+
+    /// <summary>
+    /// 큰 이동 버튼 — 둘러보기 맨 위 3개(최신 음악 · 차트 · 분위기 및 장르)는 한 줄에 같은 폭으로,
+    /// 분위기 및 장르 화면의 많은 버튼은 왼쪽 색 띠가 있는 격자로
+    /// </summary>
+    internal static FrameworkElement BuildButtons(List<NavButton> buttons)
+    {
+        if (buttons.Count <= 4)
+        {
+            var g = new Grid { Margin = new Thickness(Left, 24, 40, 8), ColumnSpacing = 24 };
+            for (var i = 0; i < buttons.Count; i++)
+            {
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var b = NavButtonView(buttons[i], big: true);
+                Grid.SetColumn(b, i);
+                g.Children.Add(b);
+            }
+            return g;
+        }
+        var wrap = new WrapPanel { Margin = new Thickness(Left, 24, 40, 8), HSpacing = 16, VSpacing = 16 };
+        foreach (var b in buttons) wrap.Children.Add(NavButtonView(b, big: false));
+        return wrap;
+    }
+
+    private static FrameworkElement NavButtonView(NavButton nb, bool big)
+    {
+        var g = new Grid { Height = big ? 56 : 48, Width = big ? double.NaN : 196, CornerRadius = new CornerRadius(big ? 12 : 8), Background = Theme.B(Theme.Chip) };
+        if (nb.Stripe is { } c)
+            g.Children.Add(new XRect { Width = 6, Fill = Theme.B(c), HorizontalAlignment = HorizontalAlignment.Left });
+        var t = Theme.Text(nb.Text, big ? 22 : 15, FontWeights.Bold, Theme.OnSurface);
+        t.VerticalAlignment = VerticalAlignment.Center;
+        t.Margin = new Thickness(big ? 24 : 18, 0, 12, 0);
+        g.Children.Add(t);
+        g.PointerEntered += (_, _) => g.Background = Theme.B(Theme.ChipHover);
+        g.PointerExited += (_, _) => g.Background = Theme.B(Theme.Chip);
+        Anim.Pressable(g);
+        g.Tapped += (_, _) => App.MainWin?.OpenBrowse(nb.BrowseId, nb.Params);
+        return g;
     }
 
     /// <summary>홈 맨 위 분위기 칩 — 36px 알약, 고르면 흰 칩</summary>
@@ -321,7 +363,28 @@ public sealed class ShelvesView : ScrollPage
         box.Children.Add(headRow);
 
         var sv = HorizontalRow(out var row);
-        headRow.Children.Add(ShelfArrows(sv));
+        var arrows = (StackPanel)ShelfArrows(sv);
+        if (s.MoreBrowseId is { } moreId)
+        {
+            // '더보기' — 테두리 알약 (pear 셸프 머리)
+            var more = new Border
+            {
+                Height = 36,
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(16, 0, 16, 0),
+                BorderBrush = Theme.B(Color.FromArgb(70, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(Colors.Transparent),
+                Child = Theme.Text("더보기", 14, FontWeights.SemiBold, Theme.OnSurface),
+            };
+            ((TextBlock)more.Child).VerticalAlignment = VerticalAlignment.Center;
+            more.PointerEntered += (_, _) => more.Background = Theme.B(Theme.ChipHover);
+            more.PointerExited += (_, _) => more.Background = new SolidColorBrush(Colors.Transparent);
+            Anim.Pressable(more);
+            more.Tapped += (_, _) => App.MainWin?.OpenBrowse(moreId, s.MoreParams);
+            arrows.Children.Insert(0, more);
+        }
+        headRow.Children.Add(arrows);
         row.Padding = new Thickness(Left, 0, 40, 8);
         var twoRows = s.Strapline != null || s.Title is "다시 듣기" or "Listen again";
         if (s.Tracks != null && s.Tracks.Count >= 4 && s.Tracks.Count == s.Items.Count)
@@ -366,7 +429,7 @@ public sealed class ShelvesView : ScrollPage
     }
 
     /// <summary>셸프 머리 오른쪽 ‹ › — 테두리만 있는 36px 동그라미, 끝에 닿으면 흐려진다 (pear 셸프 버튼)</summary>
-    private static FrameworkElement ShelfArrows(ScrollViewer sv)
+    internal static FrameworkElement ShelfArrows(ScrollViewer sv)
     {
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 40, 16) };
         IconButton Arrow(string icon, int dir)
@@ -384,7 +447,7 @@ public sealed class ShelvesView : ScrollPage
         {
             var canPrev = sv.HorizontalOffset > 1;
             var canNext = sv.HorizontalOffset < sv.ScrollableWidth - 1;
-            panel.Visibility = sv.ScrollableWidth > 1 ? Visibility.Visible : Visibility.Collapsed;
+            prev.Visibility = next.Visibility = sv.ScrollableWidth > 1 ? Visibility.Visible : Visibility.Collapsed;
             prev.Opacity = canPrev ? 1 : 0.35;
             next.Opacity = canNext ? 1 : 0.35;
             prev.IsHitTestVisible = canPrev;
@@ -397,9 +460,9 @@ public sealed class ShelvesView : ScrollPage
     }
 
     /// <summary>빠른 선곡 한 줄 (436×48) — 48px 둥근 아트 · 곡명 · 가수</summary>
-    private static FrameworkElement QuickRow(Track t)
+    internal static FrameworkElement QuickRow(Track t, double width = 436)
     {
-        var g = new Grid { Height = 48, Background = new SolidColorBrush(Colors.Transparent) };
+        var g = new Grid { Height = 48, Width = width, Background = new SolidColorBrush(Colors.Transparent) };
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var art = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(Theme.RadiusThumb), Background = Theme.B(Theme.Chip), HorizontalAlignment = HorizontalAlignment.Left };
@@ -415,6 +478,7 @@ public sealed class ShelvesView : ScrollPage
         g.Children.Add(text);
         Anim.Pressable(art);
         g.Tapped += (_, _) => _ = PlayerService.Instance.PlaySong(t);
+        g.RightTapped += (_, e) => { e.Handled = true; TrackMenu.Show(g, t); };
         return g;
     }
 }

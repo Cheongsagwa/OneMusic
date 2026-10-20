@@ -24,7 +24,7 @@ public sealed class MainWindow : Window
     private readonly Grid _wash = new() { IsHitTestVisible = false };
     private IconButton _backBtn = null!, _fwdBtn = null!, _account = null!;
     /// <summary>뒤로 간 상세 화면들 (앞으로 가기용)</summary>
-    private readonly List<string> _forward = new();
+    private readonly List<(string Id, string? Params)> _forward = new();
     private readonly Grid _content = new();
     private Grid _nav = null!;
     private NavRail _rail = null!;
@@ -123,7 +123,7 @@ public sealed class MainWindow : Window
 
         // 화면
         Home = new ShelvesView("FEmusic_home", withChips: true);
-        Explore = new ShelvesView("FEmusic_explore", withChips: false) { Visibility = Visibility.Collapsed };
+        Explore = new ShelvesView("FEmusic_explore", withChips: true) { Visibility = Visibility.Collapsed };
         Library = new ShelvesView("FEmusic_library_landing", withChips: true) { Visibility = Visibility.Collapsed };
         Search = new SearchView { Visibility = Visibility.Collapsed };
         foreach (var v in new FrameworkElement[] { Home, Explore, Library, Search }) _content.Children.Add(v);
@@ -206,9 +206,17 @@ public sealed class MainWindow : Window
         _search.Resources["TextControlPlaceholderForeground"] = Theme.B(Theme.Secondary);
         _search.Resources["TextControlPlaceholderForegroundFocused"] = Theme.B(Theme.Secondary);
         _search.TextChanged += OnSearchText;
+        // 추천 줄은 글자가 아니라 화면 요소라서, 고를 때 입력칸 글자를 바꾸지 않는다
+        _search.UpdateTextOnSelect = false;
         _search.QuerySubmitted += (_, e) =>
         {
-            var q = (e.ChosenSuggestion as string) ?? e.QueryText;
+            if (e.ChosenSuggestion is FrameworkElement { Tag: SearchItem it })
+            {
+                if (it.Track is { } t) _ = Player.PlaySong(t, fromSearch: true);
+                else if (it.BrowseId != null) OpenBrowse(it.BrowseId);
+                return;
+            }
+            var q = (e.ChosenSuggestion as FrameworkElement)?.Tag as string ?? e.QueryText;
             if (!string.IsNullOrWhiteSpace(q)) ShowSearch(q.Trim());
         };
         pill.Children.Add(_search);
@@ -252,9 +260,9 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>앨범 · 플레이리스트 · 아티스트 상세 화면을 지금 화면 위에 연다 (뒤로 가면 원래 화면 · 스크롤 위치 그대로)</summary>
-    public void OpenBrowse(string browseId) => OpenBrowse(browseId, fromForward: false);
+    public void OpenBrowse(string browseId, string? @params = null) => OpenBrowse(browseId, @params, fromForward: false);
 
-    private void OpenBrowse(string browseId, bool fromForward)
+    private void OpenBrowse(string browseId, string? @params, bool fromForward)
     {
         ClosePlayer();
         if (!fromForward) _forward.Clear();
@@ -267,7 +275,7 @@ public sealed class MainWindow : Window
             _content.Children.Remove(_details[0]);
             _details.RemoveAt(0);
         }
-        var d = new DetailView(browseId);
+        var d = new DetailView(browseId, @params);
         d.BackRequested += Back;
         _details.Add(d);
         _content.Children.Add(d);
@@ -279,9 +287,9 @@ public sealed class MainWindow : Window
     public void Forward()
     {
         if (_forward.Count == 0) return;
-        var id = _forward[^1];
+        var (id, p) = _forward[^1];
         _forward.RemoveAt(_forward.Count - 1);
-        OpenBrowse(id, fromForward: true);
+        OpenBrowse(id, p, fromForward: true);
     }
 
     private void UpdateNavButtons()
@@ -306,7 +314,7 @@ public sealed class MainWindow : Window
     public void Back()
     {
         if (_details.Count == 0) return;
-        _forward.Add(_details[^1].BrowseId);
+        _forward.Add((_details[^1].BrowseId, _details[^1].Params));
         _content.Children.Remove(_details[^1]);
         _details.RemoveAt(_details.Count - 1);
         UpdateNavButtons();
@@ -366,11 +374,43 @@ public sealed class MainWindow : Window
         try
         {
             await Task.Delay(180, cts.Token);
-            var list = await InnerTube.Instance.Suggestions(q, cts.Token);
-            if (!cts.IsCancellationRequested) sender.ItemsSource = list;
+            var (words, items) = await InnerTube.Instance.SuggestionsFull(q, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            var rows = new List<FrameworkElement>();
+            foreach (var w in words) rows.Add(SuggestRow(w, null));
+            foreach (var it in items) rows.Add(SuggestRow(it.Title, it));
+            sender.ItemsSource = rows;
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Log.Warn($"추천 검색어 실패: {ex.Message}"); }
+    }
+
+    /// <summary>검색 추천 한 줄 — 돋보기 + 검색어, 또는 아트 + 제목 + '노래 • MC몽 • …' (pear 검색 드롭다운)</summary>
+    private static FrameworkElement SuggestRow(string text, SearchItem? item)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, Height = item == null ? 36 : 48, Tag = (object?)item ?? text };
+        if (item == null)
+        {
+            var icon = Theme.Icon(18, Theme.Secondary, Icons.SearchSesl);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(icon);
+            var t = Theme.Text(text, 15, FontWeights.Normal, Theme.Secondary);
+            t.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(t);
+            return row;
+        }
+        row.Children.Add(new Border
+        {
+            Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center,
+            CornerRadius = new CornerRadius(item.Round ? 20 : 6),
+            Background = Theme.B(Theme.Chip),
+            Child = new Image { Source = Theme.Image(item.Thumb, 40), Stretch = Stretch.UniformToFill },
+        });
+        var col = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
+        col.Children.Add(Theme.Text(item.Title, 15, FontWeights.Bold, Theme.OnSurface));
+        col.Children.Add(Theme.Text(item.Subtitle, 13, FontWeights.Normal, Theme.Secondary));
+        row.Children.Add(col);
+        return row;
     }
 
     private async void OnTrack()

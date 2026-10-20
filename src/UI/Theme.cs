@@ -137,6 +137,7 @@ public static class Icons
     public const string Person = "M12 4.5a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7z M5 19.5c.8-3.4 3.6-5.5 7-5.5s6.2 2.1 7 5.5";
     public const string Download = "M12 4v11 M7.5 10.5 12 15l4.5-4.5 M5 19.5h14";
     public const string More = "M12 5.2a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z M12 10.7a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z M12 16.2a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z";
+    public const string ThumbUp = "M7.5 10.5v9 M7.5 10.5 11 4.3c1.3 0 2.2 1.1 1.9 2.4l-.6 2.8h5.2c1.3 0 2.2 1.2 1.9 2.4l-1.4 5.8c-.2.9-1 1.5-1.9 1.5H7.5 M4 10.5h3.5v9H4z";
     public const string ChevronRight = "M9.4 6l6 6-6 6";
     public const string Link = "M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1 M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1";
     public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";

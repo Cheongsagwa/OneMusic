@@ -10,6 +10,9 @@ public sealed class DetailView : ScrollPage
 {
     private readonly string _browseId;
     public string BrowseId => _browseId;
+    public string? Params { get; }
+    /// <summary>앨범 · 플레이리스트 · 아티스트가 아닌 화면 (최신 음악 · 차트 · 분위기 및 장르 · 더보기) — 셸프 · 버튼만</summary>
+    private bool Generic => Params != null || _browseId.StartsWith("FEmusic_");
     private readonly List<TrackRow> _rows = new();
     private readonly TextBlock _status = Theme.Text("불러오는 중…", 15, FontWeights.SemiBold, Theme.Secondary);
     private PageData? _page;
@@ -24,9 +27,10 @@ public sealed class DetailView : ScrollPage
             _ => false,
         });
 
-    public DetailView(string browseId)
+    public DetailView(string browseId, string? @params = null)
     {
         _browseId = browseId;
+        Params = @params;
         var back = new IconButton(40)
         {
             Content = Theme.Icon(Icons.ChevronLeft, 24, Colors.White, stroke: true, strokeWidth: 2),
@@ -46,6 +50,11 @@ public sealed class DetailView : ScrollPage
 
     public async void Load()
     {
+        if (Generic)
+        {
+            LoadGeneric();
+            return;
+        }
         try
         {
             var page = await InnerTube.Instance.BrowsePage(_browseId);
@@ -90,6 +99,47 @@ public sealed class DetailView : ScrollPage
         catch (Exception e)
         {
             Log.Error("상세 화면 불러오기 실패", e);
+            _status.Text = "불러오지 못했어요. 인터넷 연결을 확인해 주세요.";
+        }
+    }
+
+    private async void LoadGeneric()
+    {
+        try
+        {
+            var data = await InnerTube.Instance.Home(_browseId, Params);
+            Body.Children.Remove(_status);
+            if (data.Title != null)
+            {
+                var t = Theme.Text(data.Title, 32, FontWeights.ExtraBold, Theme.OnSurface);
+                t.Margin = new Thickness(Left, 8, 40, 0);
+                Body.Children.Add(t);
+                Anim.Appear(t);
+            }
+            if (data.Buttons.Count > 0)
+            {
+                var b = ShelvesView.BuildButtons(data.Buttons);
+                Body.Children.Add(b);
+                Anim.Appear(b, 60);
+            }
+            var delay = 100;
+            foreach (var s in data.Shelves)
+            {
+                var shelf = ShelvesView.BuildShelf(s);
+                Body.Children.Add(shelf);
+                Anim.Appear(shelf, delay);
+                delay = Math.Min(delay + 60, 400);
+            }
+            if (data.Shelves.Count == 0 && data.Buttons.Count == 0)
+            {
+                _status.Text = "보여 줄 내용이 없어요.";
+                Body.Children.Add(_status);
+            }
+            Body.Children.Add(BottomSpace());
+        }
+        catch (Exception e)
+        {
+            Log.Error("화면 불러오기 실패", e);
             _status.Text = "불러오지 못했어요. 인터넷 연결을 확인해 주세요.";
         }
     }

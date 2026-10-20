@@ -165,7 +165,7 @@ public sealed class CardView : StackPanel
 
     /// <param name="square">16:9 아트도 가운데를 잘라 정사각으로 (격자가 흐트러지지 않게)</param>
     /// <param name="fixedHeight">제목 · 부제목 두 줄씩 자리를 늘 비워 둬서 아래 줄 카드 위치가 같게</param>
-    public CardView(Card c, double size = 164, bool square = false, bool fixedHeight = false)
+    public CardView(Card c, double size = 164, bool square = false, bool fixedHeight = false, bool round = false)
     {
         Card = c;
         var w = c.Wide && !square ? size * 16 / 9 : size;
@@ -174,7 +174,7 @@ public sealed class CardView : StackPanel
         Spacing = 8;
         Background = new SolidColorBrush(Colors.Transparent);
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
-        var art = new Border { Width = w, Height = size, CornerRadius = new CornerRadius(18), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
+        var art = new Border { Width = w, Height = size, CornerRadius = new CornerRadius(round ? size / 2 : 18), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
         var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(c.Thumb, (int)w) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);

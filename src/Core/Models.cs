@@ -26,6 +26,9 @@ public sealed record Card(
 
 public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks = null)
 {
+    /// <summary>셸프 머리 '더보기' (예: 새 앨범 및 싱글 → 전체, 아티스트 앨범 → 모두)</summary>
+    public string? MoreBrowseId { get; init; }
+    public string? MoreParams { get; init; }
     /// <summary>보관함처럼 줄바꿈 격자로 보여 줄 셸프</summary>
     public bool Grid { get; init; }
     /// <summary>제목 위 작은 글씨 (예: 다시 듣기 위의 내 이름)</summary>
@@ -37,7 +40,15 @@ public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks =
 /// <summary>홈 맨 위 분위기 칩 (휴식 · 운동 …)</summary>
 public sealed record Chip(string Text, string? BrowseId, string? Params, bool Selected);
 
-public sealed record HomeData(List<Chip> Chips, List<Shelf> Shelves, string? Continuation = null);
+public sealed record HomeData(List<Chip> Chips, List<Shelf> Shelves, string? Continuation = null)
+{
+    /// <summary>둘러보기 맨 위 큰 버튼 (최신 음악 · 차트 · 분위기 및 장르) · 분위기 화면의 장르 버튼들</summary>
+    public List<NavButton> Buttons { get; init; } = new();
+    /// <summary>화면 제목 (분위기 · 장르 하위 화면 등)</summary>
+    public string? Title { get; init; }
+}
+
+public sealed record NavButton(string Text, string BrowseId, string? Params, Color? Stripe);
 
 /// <summary>
 /// 다음 트랙 목록 + 출처 이름(예: 'NEW YORK 믹스') + 관련 항목 페이지
@@ -125,3 +136,8 @@ public static class Fmt
         return m.StartsWith("//") ? "https:" + m : m;
     }
 }
+
+public sealed record Comment(string Author, string? Avatar, string Text, string Time, string Likes, string Replies);
+
+/// <summary>댓글 한 묶음 + '댓글 810개' + 다음 묶음 토큰</summary>
+public sealed record CommentPage(List<Comment> Items, string? Count, string? Next);

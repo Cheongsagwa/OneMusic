@@ -49,34 +49,38 @@ public sealed class InnerTube
 
     private string? _visitorData;
 
-    private async Task<JsonNode?> Post(string endpoint, JsonObject body, CancellationToken ct = default)
+    private const string WebVersion = "2.20250929.01.00";
+
+    /// <param name="web">true 면 www.youtube.com 의 WEB 클라이언트로 (댓글은 YT Music 에 없어서 YouTube 것을 쓴다)</param>
+    private async Task<JsonNode?> Post(string endpoint, JsonObject body, CancellationToken ct = default, bool web = false)
     {
+        var origin = web ? "https://www.youtube.com" : "https://music.youtube.com";
         var client = new JsonObject
         {
-            ["clientName"] = "WEB_REMIX",
-            ["clientVersion"] = ClientVersion,
+            ["clientName"] = web ? "WEB" : "WEB_REMIX",
+            ["clientVersion"] = web ? WebVersion : ClientVersion,
             ["hl"] = "ko",
             ["gl"] = "KR",
         };
         if (_visitorData != null) client["visitorData"] = _visitorData;
         body["context"] = new JsonObject { ["client"] = client, ["user"] = new JsonObject() };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}{endpoint}{(endpoint.Contains('?') ? '&' : '?')}prettyPrint=false")
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{(web ? "https://www.youtube.com/youtubei/v1/" : Base)}{endpoint}{(endpoint.Contains('?') ? '&' : '?')}prettyPrint=false")
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
         };
         req.Headers.UserAgent.ParseAdd(UserAgent);
-        req.Headers.TryAddWithoutValidation("Origin", "https://music.youtube.com");
-        req.Headers.Referrer = new Uri("https://music.youtube.com/");
-        req.Headers.TryAddWithoutValidation("X-Youtube-Client-Name", "67");
-        req.Headers.TryAddWithoutValidation("X-Youtube-Client-Version", ClientVersion);
+        req.Headers.TryAddWithoutValidation("Origin", origin);
+        req.Headers.Referrer = new Uri(origin + "/");
+        req.Headers.TryAddWithoutValidation("X-Youtube-Client-Name", web ? "1" : "67");
+        req.Headers.TryAddWithoutValidation("X-Youtube-Client-Version", web ? WebVersion : ClientVersion);
         req.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("ko-KR"));
         if (_visitorData != null) req.Headers.TryAddWithoutValidation("X-Goog-Visitor-Id", _visitorData);
-        var auth = Auth.AuthorizationHeader();
+        var auth = Auth.AuthorizationHeader(origin);
         if (auth != null)
         {
             req.Headers.TryAddWithoutValidation("Authorization", auth);
-            req.Headers.TryAddWithoutValidation("X-Origin", "https://music.youtube.com");
+            req.Headers.TryAddWithoutValidation("X-Origin", origin);
             req.Headers.TryAddWithoutValidation("X-Goog-AuthUser", "0");
         }
 
@@ -90,10 +94,10 @@ public sealed class InnerTube
         if (Log.DevRoot != null)
         {
             // 개발 중엔 마지막 응답을 남겨 두고 구조를 확인한다
-            try { File.WriteAllText(IOPath.Combine(Log.DevRoot, ".dev", $"last-{endpoint.Split('?')[0].Replace('/', '_')}.json"), text); } catch { }
+            try { File.WriteAllText(IOPath.Combine(Log.DevRoot, ".dev", $"last-{(web ? "web-" : "")}{endpoint.Split('?')[0].Replace('/', '_')}.json"), text); } catch { }
         }
         var json = JsonNode.Parse(text);
-        _visitorData ??= json.P("responseContext", "visitorData").Str();
+        if (!web) _visitorData ??= json.P("responseContext", "visitorData").Str();
         return json;
     }
 
@@ -174,6 +178,50 @@ public sealed class InnerTube
         return new SearchItem(title, sub, item.P("thumbnail").BestThumb(), be.P("browseId").Str(), PageTypeOf(be), track);
     }
 
+    // ───────────────────────── 댓글 ─────────────────────────
+
+    /// <summary>
+    /// 곡 댓글 — YouTube(WEB) next 에서 댓글 칸의 이어 받기 토큰을 얻고, 그 토큰으로 댓글을 받는다.
+    /// token 을 주면 그 다음 묶음 (인기순 → 끝까지 내리면 이어서)
+    /// </summary>
+    public async Task<CommentPage> Comments(string videoId, string? token = null, CancellationToken ct = default)
+    {
+        string? count = null;
+        if (token == null)
+        {
+            var watch = await Post("next", new JsonObject { ["videoId"] = videoId }, ct, web: true);
+            token = watch.FindAll("itemSectionRenderer")
+                .Where(s => s.P("sectionIdentifier").Str() == "comment-item-section")
+                .Select(s => s.FindFirst("continuationCommand").P("token").Str()).FirstOrDefault(t => t != null)
+                ?? watch.FindAll("continuationCommand").Select(c => c.P("token").Str()).LastOrDefault(t => t != null);
+            if (token == null) return new CommentPage(new(), null, null);
+        }
+        var json = await Post("next", new JsonObject { ["continuation"] = token }, ct, web: true);
+        count = json.FindFirst("commentsHeaderRenderer").P("countText").Text();
+        // 새 형식: 내용은 frameworkUpdates 의 commentEntityPayload 에
+        var list = new List<Comment>();
+        foreach (var p in json.FindAll("commentEntityPayload"))
+        {
+            var props = p.P("properties");
+            if (props.P("replyLevel")?.GetValue<int>() is > 0) continue;
+            list.Add(new Comment(
+                p.P("author", "displayName").Str() ?? "",
+                p.P("author", "avatarThumbnailUrl").Str(),
+                props.P("content", "content").Str() ?? "",
+                props.P("publishedTime").Str() ?? "",
+                p.P("toolbar", "likeCountNotliked").Str() ?? "",
+                p.P("toolbar", "replyCount").Str() ?? ""));
+        }
+        // 옛 형식
+        if (list.Count == 0)
+            foreach (var c in json.FindAll("commentRenderer"))
+                list.Add(new Comment(c.P("authorText").Text(), c.P("authorThumbnail").BestThumb(), c.P("contentText").Text(),
+                    c.P("publishedTimeText").Text(), c.P("voteCount").Text(), c.P("replyCount").Str() ?? ""));
+        var next = json.FindAll("continuationItemRenderer")
+            .Select(c => c.FindFirst("continuationCommand").P("token").Str()).LastOrDefault(t => t != null);
+        return new CommentPage(list, count is { Length: > 0 } ? count : null, list.Count > 0 ? next : null);
+    }
+
     /// <summary>로그인한 계정의 프로필 사진</summary>
     public async Task<string?> AccountPhoto(CancellationToken ct = default)
     {
@@ -181,15 +229,21 @@ public sealed class InnerTube
         return json.FindFirst("accountPhoto").BestThumb();
     }
 
-    public async Task<List<string>> Suggestions(string input, CancellationToken ct = default)
+    public async Task<List<string>> Suggestions(string input, CancellationToken ct = default) =>
+        (await SuggestionsFull(input, ct)).Words;
+
+    /// <summary>검색어 추천 + 바로 갈 수 있는 결과(곡 · 동영상 · 아티스트 · 앨범) — pear 검색창 드롭다운처럼</summary>
+    public async Task<(List<string> Words, List<SearchItem> Items)> SuggestionsFull(string input, CancellationToken ct = default)
     {
         var json = await Post("music/get_search_suggestions", new JsonObject { ["input"] = input }, ct);
-        return json.FindAll("searchSuggestionRenderer")
+        var words = json.FindAll("searchSuggestionRenderer")
             .Select(s => s.P("suggestion").Text())
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .Distinct()
-            .Take(8)
+            .Take(6)
             .ToList();
+        var items = json.FindAll("musicResponsiveListItemRenderer").Select(ParseSearchItem).OfType<SearchItem>().Take(4).ToList();
+        return (words, items);
     }
 
     // ───────────────────────── 홈 ─────────────────────────
@@ -204,8 +258,26 @@ public sealed class InnerTube
             c.P("navigationEndpoint", "browseEndpoint", "browseId").Str(),
             c.P("navigationEndpoint", "browseEndpoint", "params").Str(),
             c.P("isSelected")?.GetValue<bool>() == true)).Where(c => c.Text.Length > 0).ToList();
-        return new HomeData(chips, ParseShelves(json), NextToken(json));
+        return new HomeData(chips, ParseShelves(json), NextToken(json))
+        {
+            Buttons = ParseButtons(json),
+            Title = json.FindFirst("musicHeaderRenderer").P("title").Text() is { Length: > 0 } t ? t : null,
+        };
     }
+
+    private static List<NavButton> ParseButtons(JsonNode? json) =>
+        json.FindAll("musicNavigationButtonRenderer").Select(b =>
+        {
+            var be = b.P("clickCommand", "browseEndpoint");
+            var stripe = b.P("solid", "leftStripeColor")?.GetValue<double>();
+            Color? color = null;
+            if (stripe is { } v)
+            {
+                var u = (uint)(long)v;
+                color = Color.FromArgb(255, (byte)(u >> 16), (byte)(u >> 8), (byte)u);
+            }
+            return new NavButton(b.P("buttonText").Text(), be.P("browseId").Str() ?? "", be.P("params").Str(), color);
+        }).Where(b => b.Text.Length > 0 && b.BrowseId.Length > 0).ToList();
 
     /// <summary>홈을 끝까지 내리면 이어지는 셸프들 (YT Music 홈은 6개쯤씩 나눠서 준다)</summary>
     public async Task<HomeData> HomeMore(string token, CancellationToken ct = default)
@@ -237,6 +309,8 @@ public sealed class InnerTube
             if (cards.Count > 0)
                 shelves.Add(new Shelf(title, cards, tracks.Count > 0 ? tracks : null)
                 {
+                    MoreBrowseId = header.P("moreContentButton").FindFirst("browseEndpoint").P("browseId").Str(),
+                    MoreParams = header.P("moreContentButton").FindFirst("browseEndpoint").P("params").Str(),
                     Strapline = header.P("strapline").Text() is { Length: > 0 } st ? st : null,
                     Avatar = header.P("thumbnail").BestThumb(),
                 });
