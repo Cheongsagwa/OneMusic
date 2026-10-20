@@ -70,6 +70,24 @@ public static class Theme
         return new Viewbox { Width = size, Height = size, Child = canvas, IsHitTestVisible = false };
     }
 
+    /// <summary>채우고 테두리도 그리는 아이콘 (pear liked · disliked: fill + stroke 1.7 round)</summary>
+    public static FrameworkElement IconFilledStroke(string data, double size, Color color)
+    {
+        var path = new XPath
+        {
+            Data = Geo(data),
+            Fill = B(color),
+            Stroke = B(color),
+            StrokeThickness = 1.7,
+            StrokeLineJoin = Microsoft.UI.Xaml.Media.PenLineJoin.Round,
+            StrokeStartLineCap = Microsoft.UI.Xaml.Media.PenLineCap.Round,
+            StrokeEndLineCap = Microsoft.UI.Xaml.Media.PenLineCap.Round,
+        };
+        var canvas = new Canvas { Width = 24, Height = 24 };
+        canvas.Children.Add(path);
+        return new Viewbox { Width = size, Height = size, Child = canvas, IsHitTestVisible = false };
+    }
+
     /// <summary>여러 조각(선 / 채움)으로 된 24×24 아이콘</summary>
     public static FrameworkElement Icon(double size, Color color, params (string Data, bool Stroke)[] parts)
     {
@@ -136,9 +154,11 @@ public static class Icons
     public const string Album = "M12 3.5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17z M12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 1 1 0-5z";
     public const string Person = "M12 4.5a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7z M5 19.5c.8-3.4 3.6-5.5 7-5.5s6.2 2.1 7 5.5";
     public const string Download = "M12 4v11 M7.5 10.5 12 15l4.5-4.5 M5 19.5h14";
-    public const string More = "M12 5.2a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z M12 10.7a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z M12 16.2a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z";
-    public const string ThumbUp = "M7.5 10.5v9 M7.5 10.5 11 4.3c1.3 0 2.2 1.1 1.9 2.4l-.6 2.8h5.2c1.3 0 2.2 1.2 1.9 2.4l-1.4 5.8c-.2.9-1 1.5-1.9 1.5H7.5 M4 10.5h3.5v9H4z";
-    public const string ThumbDown = "M16.5 13.5v-9 M16.5 13.5 13 19.7c-1.3 0-2.2-1.1-1.9-2.4l.6-2.8H6.5c-1.3 0-2.2-1.2-1.9-2.4l1.4-5.8c.2-.9 1-1.5 1.9-1.5h8.6 M20 13.5h-3.5v-9H20z";
+    /// <summary>⋮ — sesl-androidx 원본 경로 (pear icons.ts more)</summary>
+    public const string More = "M12,16.75C12.868,16.75 13.5,17.382 13.5,18.25C13.5,19.118 12.868,19.75 12,19.75C11.211,19.75 10.5,19.118 10.5,18.25C10.5,17.382 11.132,16.75 12,16.75ZM12,10.5C12.868,10.5 13.5,11.132 13.5,12C13.5,12.868 12.868,13.5 12,13.5C11.211,13.5 10.5,12.868 10.5,12C10.5,11.132 11.132,10.5 12,10.5ZM12,4.25C12.789,4.25 13.5,4.882 13.5,5.75C13.5,6.618 12.868,7.25 12,7.25C11.211,7.25 10.5,6.618 10.5,5.75C10.5,4.882 11.132,4.25 12,4.25Z";
+    /// <summary>pear icons.ts THUMB (좋아요). 싫어요는 180° 돌린 것</summary>
+    public const string ThumbUp = "M7.6 10.6v8.9M7.6 10.6l3.5-6.1c.3-.6 1-.9 1.6-.7 1 .3 1.6 1.3 1.4 2.3l-.6 3.2h4.3c1.3 0 2.3 1.2 2 2.5l-1.4 5.8c-.2 1-1.1 1.7-2.1 1.7H7.6M7.6 10.6H5.2c-.6 0-1.1.5-1.1 1.1v6.7c0 .6.5 1.1 1.1 1.1h2.4";
+    public const string ThumbDown = "M16.4 13.4v-8.9M16.4 13.4l-3.5 6.1c-.3.6-1 .9-1.6.7-1-.3-1.6-1.3-1.4-2.3l.6-3.2H6.2c-1.3 0-2.3-1.2-2-2.5l1.4-5.8c.2-1 1.1-1.7 2.1-1.7h8.7M16.4 13.4h2.4c.6 0 1.1-.5 1.1-1.1V5.6c0-.6-.5-1.1-1.1-1.1h-2.4";
     public const string MinusCircle = "M12 3.6a8.4 8.4 0 1 1 0 16.8a8.4 8.4 0 1 1 0-16.8z M8 12h8";
     public const string Share = "M14 5l6 6-6 6 M20 11h-7.5c-4 0-7.5 3-8 8";
     public const string Check = "M6 12.5l4 4 8-9";

@@ -57,25 +57,31 @@ public sealed class OneMenu
     public void Item(string text, string icon, Action click, bool keepOpen = false) =>
         _items.Children.Add(Row(text, icon, click, keepOpen));
 
-    /// <summary>한 줄 두 칸 (좋아요 · 싫어요)</summary>
-    public void Pair((string Text, string Icon, Action Click) a, (string Text, string Icon, Action Click) b)
+    private Grid? _pair;
+
+    /// <summary>한 줄 두 칸 (좋아요 · 싫어요). filled = 이미 누른 상태(채운 아이콘)</summary>
+    public void Pair((string Text, string Icon, bool Filled, Action Click) a, (string Text, string Icon, bool Filled, Action Click) b)
     {
-        var g = new Grid { ColumnSpacing = 4 };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var ra = Row(a.Text, a.Icon, a.Click, false, center: true);
-        var rb = Row(b.Text, b.Icon, b.Click, false, center: true);
+        if (_pair == null)
+        {
+            _pair = new Grid { ColumnSpacing = 4 };
+            _pair.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _pair.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _items.Children.Add(_pair);
+        }
+        _pair.Children.Clear();
+        var ra = Row(a.Text, a.Icon, a.Click, false, center: true, filled: a.Filled);
+        var rb = Row(b.Text, b.Icon, b.Click, false, center: true, filled: b.Filled);
         Grid.SetColumn(rb, 1);
-        g.Children.Add(ra);
-        g.Children.Add(rb);
-        _items.Children.Add(g);
+        _pair.Children.Add(ra);
+        _pair.Children.Add(rb);
     }
 
-    private FrameworkElement Row(string text, string icon, Action click, bool keepOpen, bool center = false)
+    private FrameworkElement Row(string text, string icon, Action click, bool keepOpen, bool center = false, bool filled = false)
     {
         var g = new Grid { Height = 48, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Colors.Transparent) };
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(center ? 0 : 16, 0, 12, 0), HorizontalAlignment = center ? HorizontalAlignment.Center : HorizontalAlignment.Left };
-        var ic = Theme.Icon(icon, 20, Colors.White, stroke: true, strokeWidth: 1.7);
+        var ic = filled ? Theme.IconFilledStroke(icon, 20, Colors.White) : Theme.Icon(icon, 20, Colors.White, stroke: true, strokeWidth: 1.7);
         ic.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(ic);
         var t = Theme.Text(text, 15, FontWeights.SemiBold, Theme.OnSurface);
@@ -110,38 +116,53 @@ public sealed class OneMenu
     {
         CloseAll();
         var layer = _layer ?? throw new InvalidOperationException("메뉴 층이 없음");
-        _box.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var w = _box.DesiredSize.Width;
-        var h = _box.DesiredSize.Height;
-        var winW = layer.ActualWidth;
-        var winH = layer.ActualHeight;
+        // 층은 닫혀 있을 땐 접혀(Collapsed) 있어서 크기가 0 으로 읽힌다 → 창(XamlRoot) 크기를 쓴다.
+        // (예전엔 이 0 때문에 모든 메뉴가 왼쪽 위 구석 — 창 제목 줄 밑 — 으로 밀려 안 보였다)
+        var win = at.XamlRoot?.Size ?? new Size(layer.ActualWidth, layer.ActualHeight);
+        layer.Visibility = Visibility.Visible;
+        _box.Measure(new Size(_box.Width, double.PositiveInfinity));
+        var w = _box.Width;
+        var h = Math.Min(_box.DesiredSize.Height, win.Height - 160);
+        if (_box.DesiredSize.Height > h) WrapScroll(h);
         double x, y;
         if (pos is { } p)
         {
             x = p.X;
             y = p.Y;
+            if (y + h > win.Height - 8) y = p.Y - h;
         }
         else
         {
-            var r = at.TransformToVisual(layer).TransformBounds(new Rect(0, 0, at.ActualWidth, at.ActualHeight));
-            x = r.X;
+            // 창 기준 좌표 (null = 창 내용 맨 바깥)
+            var r = at.TransformToVisual(null).TransformBounds(new Rect(0, 0, at.ActualWidth, at.ActualHeight));
+            x = r.X + r.Width / 2 - w / 2;
             y = r.Bottom + 6;
             // 아래 공간이 없으면 위로 (재생 바의 ⋮)
-            if (y + h > winH - 8) y = r.Y - h - 6;
+            if (y + h > win.Height - 8) y = r.Y - h - 6;
         }
-        x = Math.Clamp(x, 8, Math.Max(8, winW - w - 8));
-        y = Math.Clamp(y, 8, Math.Max(8, winH - h - 8));
+        // 창 제목 줄(32px)은 끌기 영역이라 그 밑으로
+        x = Math.Clamp(x, 8, Math.Max(8, win.Width - w - 8));
+        y = Math.Clamp(y, 40, Math.Max(40, win.Height - h - 8));
+        Core.Log.Info($"메뉴 열기 ({x:0},{y:0}) {w:0}x{h:0} 창 {win.Width:0}x{win.Height:0}");
         // 바깥을 누르면 닫히는 투명 판
         _dismiss = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
         _dismiss.PointerPressed += (_, e) => { e.Handled = true; Close(); };
+        _dismiss.RightTapped += (_, e) => e.Handled = true;
         _box.HorizontalAlignment = HorizontalAlignment.Left;
         _box.VerticalAlignment = VerticalAlignment.Top;
         _box.Margin = new Thickness(x, y, 0, 0);
         layer.Children.Add(_dismiss);
         layer.Children.Add(_box);
-        layer.Visibility = Visibility.Visible;
         Open.Add(this);
         Anim.Pop(_box);
+    }
+
+    /// <summary>메뉴가 창보다 길면 안쪽을 스크롤 (pear: max-height calc(100vh - 160px))</summary>
+    private void WrapScroll(double h)
+    {
+        if (_box.Child is ScrollViewer) return;
+        _box.Child = null;
+        _box.Child = new ScrollViewer { Content = _items, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, MaxHeight = h };
     }
 
     public async void Close()

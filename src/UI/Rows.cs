@@ -8,6 +8,7 @@ public sealed class TrackRow : Grid
 {
     private readonly Border _hover;
     private readonly Grid _artBox;
+    private Border? _playOverlay;
     private Equalizer? _eq;
     public Track Track { get; }
     public event Action<TrackRow>? Click;
@@ -46,6 +47,16 @@ public sealed class TrackRow : Grid
             img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
             art.Child = img;
             _artBox.Children.Add(art);
+            // 마우스를 올리면 아트 위에 옅은 덮개 + 재생 아이콘 (pear 80: rgb(0 0 0 / 0.38), 아트와 같은 둥근 모양)
+            _playOverlay = new Border
+            {
+                CornerRadius = new CornerRadius(Theme.RadiusThumb),
+                Background = Theme.B(Color.FromArgb(97, 0, 0, 0)),
+                Child = Theme.Icon(Icons.Play, 20, Colors.White),
+                IsHitTestVisible = false,
+            };
+            Anim.V(_playOverlay).Opacity = 0;
+            _artBox.Children.Add(_playOverlay);
         }
         g.Children.Add(_artBox);
         var text = new StackPanel { Margin = new Thickness(16, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
@@ -55,12 +66,36 @@ public sealed class TrackRow : Grid
         g.Children.Add(text);
         var dur = Theme.Text(t.DurationText, 14, FontWeights.Normal, Theme.Secondary);
         dur.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(dur, 2);
-        g.Children.Add(dur);
+        dur.HorizontalAlignment = HorizontalAlignment.Right;
+        // 마우스를 올리면 길이 자리에 ⋮ (pear 재생 목록 줄)
+        var more = new IconButton(36) { Content = Theme.Icon(Icons.More, 22, Colors.White), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, -6, 0) };
+        ToolTipService.SetToolTip(more, "작업 메뉴");
+        more.Click += () => TrackMenu.Show(more, Track, QueueIndex);
+        Anim.V(more).Opacity = 0;
+        more.IsHitTestVisible = false;
+        var right = new Grid { MinWidth = 36, VerticalAlignment = VerticalAlignment.Center };
+        right.Children.Add(dur);
+        right.Children.Add(more);
+        Grid.SetColumn(right, 2);
+        g.Children.Add(right);
         Children.Add(g);
 
-        PointerEntered += (_, _) => Anim.Opacity(_hover, 1, 160);
-        PointerExited += (_, _) => Anim.Opacity(_hover, 0, 240);
+        PointerEntered += (_, _) =>
+        {
+            Anim.Opacity(_hover, 1, 160);
+            Anim.Opacity(dur, 0, 120);
+            Anim.Opacity(more, 1, 160);
+            more.IsHitTestVisible = true;
+            if (_playOverlay != null && _eq == null) Anim.Opacity(_playOverlay, 1, 160);
+        };
+        PointerExited += (_, _) =>
+        {
+            Anim.Opacity(_hover, _eq != null ? 1 : 0, 240);
+            Anim.Opacity(dur, 1, 240);
+            Anim.Opacity(more, 0, 200);
+            more.IsHitTestVisible = false;
+            if (_playOverlay != null) Anim.Opacity(_playOverlay, 0, 200);
+        };
         Tapped += (_, _) => Click?.Invoke(this);
         RightTapped += (_, e) =>
         {
@@ -303,7 +338,18 @@ public static class TrackMenu
         var p = PlayerService.Instance;
         var m = new OneMenu();
         // 맨 위: 좋아요 · 싫어요 한 줄 (pear ⋮ 메뉴)
-        m.Pair(("좋아요", Icons.ThumbUp, () => Rate(t, true)), ("싫어요", Icons.ThumbDown, () => Rate(t, false)));
+        // 맨 위: 좋아요 · 싫어요 (이미 눌렀으면 채운 아이콘 + '취소'). 상태를 모르면 받아 와서 바꿔 그린다
+        void LikePair(string? st) => m.Pair(
+            (st == "LIKE" ? "좋아요 취소" : "좋아요", Icons.ThumbUp, st == "LIKE", () => Rate(t, st == "LIKE" ? null : true)),
+            (st == "DISLIKE" ? "싫어요 취소" : "싫어요", Icons.ThumbDown, st == "DISLIKE", () => Rate(t, st == "DISLIKE" ? null : false)));
+        string? known;
+        lock (InnerTube.Likes) known = InnerTube.Likes.GetValueOrDefault(t.VideoId);
+        LikePair(known);
+        if (known == null && Auth.IsLoggedIn)
+            _ = InnerTube.Instance.LikeStatus(t.VideoId).ContinueWith(task =>
+            {
+                if (task.Result is { } st) at.DispatcherQueue.TryEnqueue(() => LikePair(st));
+            }, TaskContinuationOptions.OnlyOnRanToCompletion);
         m.Separator();
         m.Item("다운로드", Icons.Download, () => DownloadAll(new[] { t }));
         m.Item("믹스 시작", Icons.Radio, () => _ = p.PlaySong(t));
@@ -353,12 +399,19 @@ public static class TrackMenu
         m.Show(at, pos);
     }
 
-    private static async void Rate(Track t, bool like)
+    private static async void Rate(Track t, bool? like)
     {
         try
         {
             var ok = await InnerTube.Instance.Rate(t.VideoId, like);
-            Toast.Show(ok ? (like ? "좋아요 표시한 노래에 추가했어요" : "싫어요를 표시했어요") : "로그인이 필요해요");
+            Toast.Show(!ok ? "로그인이 필요해요" : like switch
+            {
+                true => "좋아요 표시한 노래에 추가했어요",
+                false => "싫어요를 표시했어요",
+                _ => "평가를 취소했어요",
+            });
+            // 싫어요 한 곡이 지금 곡이면 넘긴다 (pear skip-disliked-songs)
+            if (ok && like == false && PlayerService.Instance.Current?.VideoId == t.VideoId) _ = PlayerService.Instance.Next();
         }
         catch (Exception e) { Log.Warn($"좋아요 실패: {e.Message}"); }
     }

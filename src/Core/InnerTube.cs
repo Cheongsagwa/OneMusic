@@ -245,6 +245,7 @@ public sealed class InnerTube
     {
         var ep = like switch { true => "like/like", false => "like/dislike", _ => "like/removelike" };
         var json = await Post(ep, new JsonObject { ["target"] = new JsonObject { ["videoId"] = videoId } }, ct);
+        if (json != null) lock (Likes) Likes[videoId] = like switch { true => "LIKE", false => "DISLIKE", _ => "INDIFFERENT" };
         return json != null;
     }
 
@@ -424,7 +425,25 @@ public sealed class InnerTube
         body["playlistId"] = playlistId ?? (videoId != null ? "RDAMVM" + videoId : null);
         if (@params != null) body["params"] = @params;
         var json = await Post("next", body, ct);
+        if (videoId != null) RememberLike(videoId, json);
         return ParseQueue(json);
+    }
+
+    /// <summary>곡별 좋아요 상태 (LIKE · DISLIKE · INDIFFERENT) — next 응답에 같이 온다</summary>
+    public static Dictionary<string, string> Likes { get; } = new();
+
+    private static void RememberLike(string videoId, JsonNode? json)
+    {
+        var st = json.FindFirst("likeButtonRenderer").P("likeStatus").Str();
+        if (st != null) lock (Likes) Likes[videoId] = st;
+    }
+
+    public async Task<string?> LikeStatus(string videoId, CancellationToken ct = default)
+    {
+        lock (Likes) if (Likes.TryGetValue(videoId, out var s)) return s;
+        var json = await Post("next", new JsonObject { ["videoId"] = videoId, ["isAudioOnly"] = true }, ct);
+        RememberLike(videoId, json);
+        lock (Likes) return Likes.GetValueOrDefault(videoId);
     }
 
     private static QueueData ParseQueue(JsonNode? json)
