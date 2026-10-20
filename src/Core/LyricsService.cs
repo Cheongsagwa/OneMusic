@@ -11,7 +11,6 @@ public sealed class LyricsService
     public static LyricsService Instance { get; } = new();
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
-    private readonly Dictionary<string, List<LyricLine>?> _cache = new();
     private readonly Dictionary<(string, LyricsSource), LyricsResult?> _bySource = new();
     private string? _mxmToken;
 
@@ -27,7 +26,7 @@ public sealed class LyricsService
         {
             r = source switch
             {
-                LyricsSource.LRCLib => await Get(t, ct) is { } l ? new LyricsResult(l, true) : null,
+                LyricsSource.LRCLib => await Lrclib(t, ct),
                 LyricsSource.YTMusic => Plain(await InnerTube.Instance.YtLyrics(t.VideoId, ct)),
                 _ => await Musixmatch(t, ct),
             };
@@ -93,32 +92,27 @@ public sealed class LyricsService
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("OneMusic v1.0 (desktop music player)");
     }
 
-    public async Task<List<LyricLine>?> Get(Track t, CancellationToken ct)
+    /// <summary>LRCLib — 결과를 곡 · 출처별로 기억</summary>
+    private async Task<LyricsResult?> Lrclib(Track t, CancellationToken ct)
     {
-        if (_cache.TryGetValue(t.VideoId, out var cached)) return cached;
-        List<LyricLine>? result = null;
-        for (var attempt = 0; attempt < 1 && result == null; attempt++)
-        {
-            try
-            {
-                result = await Fetch(t, ct);
-                break;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception e)
-            {
-                Log.Warn($"가사 불러오기 실패: {e.Message}");
-                await Task.Delay(1000 * (1 << attempt), ct);
-            }
-        }
-        _cache[t.VideoId] = result;
-        return result;
+        if (_lrc.TryGetValue(t.VideoId, out var cached)) return cached;
+        var r = await FetchLrclib(t, ct);
+        _lrc[t.VideoId] = r;
+        return r;
     }
 
-    private async Task<List<LyricLine>?> Fetch(Track t, CancellationToken ct)
+    private readonly Dictionary<string, LyricsResult?> _lrc = new();
+
+    /// <summary>
+    /// 여러 방법으로 후보를 모아서 고른다.
+    /// 1) get-cached (정확히)  2) track_name + artist_name 검색 (제목 그대로 · feat 뗀 것)  3) 자유 검색 (가수+제목, 제목+피처링 가수)
+    /// 고르는 순서: 길이 ±8초 안 → 원어(한글 곡이면 한글 가사) → 시간 있는 가사 → 길이가 가까운 것.
+    /// 원어인 시간 가사가 없으면 원어인 일반 가사(시간 없음)라도. 로마자 · 번역본만 있으면 없음 → 다음 출처
+    /// </summary>
+    private async Task<LyricsResult?> FetchLrclib(Track t, CancellationToken ct)
     {
-        var title = Clean(t.Title);
-        // 가수 이름 후보: "아이유(IU)" → "아이유(IU)", "아이유", "IU"
+        var full = t.Title.Trim();
+        var title = Clean(full);
         var artists = new List<string> { t.Artist.Trim() };
         var m = Regex.Match(t.Artist, @"^(.*?)\s*\((.+?)\)\s*$");
         if (m.Success)
@@ -126,41 +120,64 @@ public sealed class LyricsService
             artists.Add(m.Groups[1].Value.Trim());
             artists.Add(m.Groups[2].Value.Trim());
         }
+        // 여러 가수 '아이유, 박재범 · A 및 B' → 첫 가수만도
+        artists.Add(Regex.Split(t.Artist, @",| 및 | & | x ")[0].Trim());
         artists = artists.Where(a => a.Length > 0).Distinct().ToList();
+        var feat = Regex.Match(full, @"[\(\[](?:feat\.?|ft\.?|with)\s*([^\)\]]+)[\)\]]", RegexOptions.IgnoreCase);
 
-        // 1) 정확히 찾기 (곡 길이까지)
-        foreach (var artist in artists)
+        var all = new Dictionary<long, JsonNode>();
+        void AddOne(JsonNode? x)
+        {
+            if (x?["id"] is { } id && (x.P("syncedLyrics").Str() != null || x.P("plainLyrics").Str() != null))
+                all.TryAdd(id.GetValue<long>(), x);
+        }
+        async Task<JsonNode?> GetJson(string url)
+        {
+            try
+            {
+                using var res = await _http.GetAsync(url, ct);
+                // LRCLib 은 자기 DB 에 없으면 바깥에서 찾다가 503 을 주기도 한다 → 그냥 다음 방법으로
+                return res.IsSuccessStatusCode ? JsonNode.Parse(await res.Content.ReadAsStringAsync(ct)) : null;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return null; } // 요청 시간 초과
+        }
+
+        foreach (var artist in artists.Take(2))
         {
             var url = $"https://lrclib.net/api/get-cached?artist_name={Uri.EscapeDataString(artist)}&track_name={Uri.EscapeDataString(title)}";
             if (t.DurationSec > 0) url += $"&duration={t.DurationSec}";
-            using var res = await _http.GetAsync(url, ct);
-            // LRCLib 은 자기 DB 에 없으면 바깥에서 찾다가 503 을 주기도 한다 → 그냥 다음 방법으로
-            if (!res.IsSuccessStatusCode) continue;
-            var json = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
-            var synced = json.P("syncedLyrics").Str();
-            // 원어가 아닌 것(한국 곡인데 로마자 · 영어 번역)은 버리고 검색으로
-            if (!ScriptMatches(t, synced)) { Log.Info($"LRCLib 결과가 원어가 아님 → 건너뜀: {t.Title}"); continue; }
-            var lrc = Parse(synced);
-            if (lrc != null) return lrc;
+            AddOne(await GetJson(url));
         }
-        // 2) 검색해서 길이가 가장 비슷한 것
-        foreach (var q in artists.Select(a => $"{a} {title}").Append(title))
+        foreach (var tn in new[] { full, title }.Distinct())
+            foreach (var artist in artists)
+                if (await GetJson($"https://lrclib.net/api/search?track_name={Uri.EscapeDataString(tn)}&artist_name={Uri.EscapeDataString(artist)}") is JsonArray arr)
+                    foreach (var x in arr) AddOne(x);
+        var qs = artists.Select(a => $"{a} {title}").ToList();
+        if (feat.Success) qs.Add($"{title} {feat.Groups[1].Value.Trim()}");
+        qs.Add(title);
+        foreach (var q in qs.Distinct())
         {
-            var search = $"https://lrclib.net/api/search?q={Uri.EscapeDataString(q)}";
-            using var sres = await _http.GetAsync(search, ct);
-            if (!sres.IsSuccessStatusCode) continue;
-            var arr = JsonNode.Parse(await sres.Content.ReadAsStringAsync(ct)) as JsonArray;
-            if (arr == null) continue;
-            var best = arr
-                .Where(x => x.P("syncedLyrics").Str() != null && ScriptMatches(t, x.P("syncedLyrics").Str()))
-                .Where(x => t.DurationSec <= 0 || Math.Abs((x?["duration"]?.GetValue<double>() ?? 0) - t.DurationSec) < 8)
-                .OrderBy(x => Math.Abs((x?["duration"]?.GetValue<double>() ?? 0) - t.DurationSec))
-                .FirstOrDefault();
-            var lrc = Parse(best.P("syncedLyrics").Str());
-            if (lrc != null) return lrc;
+            if (await GetJson($"https://lrclib.net/api/search?q={Uri.EscapeDataString(q)}") is JsonArray arr)
+                foreach (var x in arr) AddOne(x);
+            if (all.Values.Any(x => Good(t, x, synced: true))) break;
         }
+
+        var cands = all.Values.Where(x => t.DurationSec <= 0 || Math.Abs(Dur(x) - t.DurationSec) < 8)
+            .OrderBy(x => Math.Abs(Dur(x) - t.DurationSec)).ToList();
+        Log.Info($"LRCLib 후보 {all.Count}개 (길이 맞는 것 {cands.Count}): " +
+                 string.Join(" / ", cands.Take(6).Select(x => $"#{x["id"]} {x.P("artistName").Str()} - {x.P("trackName").Str()} {Dur(x):0}s {(x.P("syncedLyrics").Str() != null ? "synced" : "plain")} 원어:{ScriptMatches(t, x.P("syncedLyrics").Str() ?? x.P("plainLyrics").Str())}")));
+        var best = cands.FirstOrDefault(x => Good(t, x, synced: true));
+        if (best != null) return Parse(best.P("syncedLyrics").Str()) is { } l ? new LyricsResult(l, true) : null;
+        var plain = cands.FirstOrDefault(x => Good(t, x, synced: false));
+        if (plain != null) return Plain(plain.P("plainLyrics").Str());
         return null;
     }
+
+    private static double Dur(JsonNode x) => x["duration"]?.GetValue<double>() ?? 0;
+
+    private static bool Good(Track t, JsonNode x, bool synced) =>
+        synced ? x.P("syncedLyrics").Str() is { } s && ScriptMatches(t, s)
+               : x.P("plainLyrics").Str() is { } p && ScriptMatches(t, p);
 
     private static bool HasHangul(string s) => s.Any(c => c is >= '\uAC00' and <= '\uD7A3' or >= '\u1100' and <= '\u11FF' or >= '\u3130' and <= '\u318F');
     private static bool HasKana(string s) => s.Any(c => c is >= '\u3040' and <= '\u30FF');
