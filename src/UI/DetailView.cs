@@ -215,6 +215,17 @@ public sealed class DetailView : ScrollPage
 
         // 버튼: 셔플 · ▶(64 흰 동그라미) · 링크 복사
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
+        if (page.Tracks.Count > 0) buttons.Children.Add(Circle(40, false, Icons.Download, true, "다운로드 · 오프라인 저장", () =>
+        {
+            var f = new MenuFlyout();
+            var dl = new MenuFlyoutItem { Text = $"다운로드 ({page.Tracks.Count}곡, 음악 폴더)" };
+            dl.Click += (_, _) => TrackMenu.DownloadAll(page.Tracks);
+            var off = new MenuFlyoutItem { Text = $"오프라인 저장 ({page.Tracks.Count}곡)" };
+            off.Click += (_, _) => TrackMenu.SaveOffline(page.Tracks);
+            f.Items.Add(dl);
+            f.Items.Add(off);
+            f.ShowAt(buttons);
+        }));
         if (page.Tracks.Count > 1) buttons.Children.Add(Circle(40, false, Icons.Shuffle, true, "셔플", () => PlayAll(true)));
         if (page.Tracks.Count > 0) buttons.Children.Add(Circle(64, true, Icons.Play, false, "재생", () => PlayAll(false)));
         buttons.Children.Add(Circle(40, false, Icons.Link, true, "링크 복사", () => CopyLink(page)));

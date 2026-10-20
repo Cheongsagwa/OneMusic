@@ -196,6 +196,42 @@ public sealed class CardView : StackPanel
     }
 }
 
+/// <summary>재생 바 위에 잠깐 떴다 사라지는 알림 (pear 의 토스트)</summary>
+public static class Toast
+{
+    private static Border? _box;
+    private static TextBlock? _text;
+    private static int _gen;
+
+    public static void Attach(Grid root)
+    {
+        _text = Theme.Text("", 14, FontWeights.SemiBold, Colors.White);
+        _box = new Border
+        {
+            CornerRadius = new CornerRadius(20),
+            Background = Theme.Glass(0.75),
+            Padding = new Thickness(20, 10, 20, 10),
+            Child = _text,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 0, Theme.BarHeight + Theme.FloatGap * 2 + 12),
+            IsHitTestVisible = false,
+        };
+        Anim.V(_box).Opacity = 0;
+        root.Children.Add(_box);
+    }
+
+    public static async void Show(string message)
+    {
+        if (_box == null || _text == null) return;
+        var g = ++_gen;
+        _text.Text = message;
+        Anim.Pop(_box);
+        await Task.Delay(2600);
+        if (g == _gen) Anim.Opacity(_box, 0, Anim.Fast);
+    }
+}
+
 /// <summary>가로로 채우다 넘치면 다음 줄로 (보관함 격자)</summary>
 public sealed class WrapPanel : Panel
 {
@@ -265,12 +301,40 @@ public static class TrackMenu
         if (t.AlbumId != null) Item("앨범으로 이동", Icons.Album, () => App.MainWin?.OpenBrowse(t.AlbumId));
         if (t.ArtistId != null) Item("아티스트 페이지로 이동", Icons.Person, () => App.MainWin?.OpenBrowse(t.ArtistId));
         f.Items.Add(new MenuFlyoutSeparator());
+        Item("다운로드", "", () => DownloadAll(new[] { t }));
+        var off = Offline.Instance;
+        if (off.Has(t.VideoId)) Item("오프라인 저장 삭제", "", () => { off.Remove(t.VideoId); Toast.Show("오프라인 저장에서 뺐어요"); });
+        else Item("오프라인 저장", "", () => SaveOffline(new[] { t }));
         Item("공유 (링크 복사)", Icons.Link, () =>
         {
             var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
             pkg.SetText($"https://music.youtube.com/watch?v={t.VideoId}");
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+            Toast.Show("링크를 복사했어요");
         });
         f.ShowAt(at);
+    }
+
+    /// <summary>음악 폴더\OneMusic 에 m4a 로 (여러 곡이면 차례로)</summary>
+    public static async void DownloadAll(IEnumerable<Track> tracks)
+    {
+        var list = tracks.ToList();
+        var ok = 0;
+        Toast.Show(list.Count == 1 ? $"'{list[0].Title}' 다운로드 중…" : $"{list.Count}곡 다운로드 중…");
+        foreach (var t in list)
+        {
+            try { await Offline.Download(t); ok++; }
+            catch (Exception e) { Log.Error($"다운로드 실패: {t.Title}", e); }
+        }
+        Toast.Show(ok == list.Count ? $"다운로드 완료 — {Offline.DownloadDir}" : $"{ok}/{list.Count}곡 다운로드 (나머지 실패)");
+    }
+
+    public static async void SaveOffline(IEnumerable<Track> tracks)
+    {
+        var list = tracks.ToList();
+        Toast.Show(list.Count == 1 ? $"'{list[0].Title}' 오프라인 저장 중…" : $"{list.Count}곡 오프라인 저장 중…");
+        var ok = 0;
+        foreach (var t in list) if (await Offline.Instance.Save(t)) ok++;
+        Toast.Show(ok == list.Count ? "오프라인 저장 완료 — 보관함에서 볼 수 있어요" : $"{ok}/{list.Count}곡 저장 (나머지 실패)");
     }
 }

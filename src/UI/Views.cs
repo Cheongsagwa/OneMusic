@@ -210,6 +210,9 @@ public sealed class ShelvesView : ScrollPage
             else shelves = await InnerTube.Instance.BrowseShelves(_browseId);
             Body.Children.Clear();
             if (chips.Count > 0) Body.Children.Add(BuildChips(chips));
+            // 보관함 맨 위: 오프라인 저장한 곡
+            if (_browseId == "FEmusic_library_landing" && _chipBrowse == null && Offline.Instance.Tracks is { Count: > 0 } saved)
+                shelves.Insert(0, new Shelf("오프라인 저장", saved.Select(t => new Card(t.Title, t.Artist, t.Thumb, false, t.VideoId, null, null)).ToList(), saved.ToList()));
             if (shelves.Count == 0)
             {
                 _status.Text = "보여 줄 내용이 없어요.";

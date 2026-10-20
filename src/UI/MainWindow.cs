@@ -147,6 +147,7 @@ public sealed class MainWindow : Window
         };
         Bar.OpenPlayer += TogglePlayer;
         Root.Children.Add(Bar);
+        Toast.Attach(Root);
 
         Content = Root;
         Root.Loaded += (_, _) => Home.LoadOnce();

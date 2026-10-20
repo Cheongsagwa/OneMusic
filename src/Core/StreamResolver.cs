@@ -50,6 +50,8 @@ public sealed class StreamResolver
     /// </summary>
     private async Task<byte[]> Download(string videoId, bool fresh)
     {
+        // 오프라인 저장한 곡이면 인터넷 없이
+        if (!fresh && await Offline.Instance.Read(videoId) is { } saved) return saved;
         var url = await Resolve(videoId, fresh, CancellationToken.None);
         var sw = Stopwatch.StartNew();
         const int chunk = 2 << 20;
