@@ -27,11 +27,26 @@ public sealed class PlayerService
     /// <summary>'재생 중인 트랙 출처' 에 보일 이름 (예: NEW YORK 믹스)</summary>
     public string? QueueTitle { get; private set; }
     public string? RelatedBrowseId { get; private set; }
+    /// <summary>
+    /// 자동재생 구간이 시작하는 자리. Queue[..AutoStart] 는 사용자가 고른 곡(곡 하나 · 앨범 · 플레이리스트),
+    /// Queue[AutoStart..] 는 '자동재생 사용 중' 아래에 보이는 비슷한 곡들 (칩으로 고른 알고리즘에 따라 바뀜)
+    /// </summary>
+    public int AutoStart { get; private set; }
+    /// <summary>자동재생 칩 (전체 · 친숙한 곡 · 인기 · 처음 듣는 곡 · 숨은 명곡 · 2020년대 …)</summary>
+    public List<QueueChip> AutoChips { get; private set; } = new();
+    public bool AutoLoading { get; private set; }
+    private int _autoVersion;
+
     /// <summary>자동재생 — 목록 끝에 다다르면 비슷한 곡을 이어서 튼다</summary>
     public bool Autoplay
     {
         get => Settings.Current.Autoplay;
-        set { Settings.Current.Autoplay = value; QueueChanged?.Invoke(); }
+        set
+        {
+            Settings.Current.Autoplay = value;
+            QueueChanged?.Invoke();
+            if (value && AutoStart >= Queue.Count && Queue.Count > 0) _ = LoadAuto(Queue[^1].VideoId, null, null);
+        }
     }
     public bool Loading { get; private set; }
 
@@ -118,33 +133,93 @@ public sealed class PlayerService
     {
         Queue = new List<Track> { t };
         Index = 0;
+        AutoStart = 1;
+        AutoChips = new();
         QueueTitle = null;
         RelatedBrowseId = null;
+        var version = ++_autoVersion;
+        AutoLoading = true;
         QueueChanged?.Invoke();
         await Load();
         try
         {
+            // YT Music 처럼: 고른 곡 하나 + 그 곡의 라디오가 '자동재생' 구간
             var data = await InnerTube.Instance.GetQueue(t.VideoId, null);
-            if (Current?.VideoId != t.VideoId) return; // 그 사이 다른 곡을 틀었음
+            if (version != _autoVersion) return; // 그 사이 다른 곡을 틀었음
             QueueTitle = data.Title;
             RelatedBrowseId = data.RelatedBrowseId;
+            AutoChips = data.Chips;
             Queue = new List<Track> { t };
             Queue.AddRange(data.Tracks.Where(x => x.VideoId != t.VideoId));
-            QueueChanged?.Invoke();
-            if (Queue.Count > 1) StreamResolver.Instance.Prefetch(Queue[1].VideoId);
+            if (Autoplay && Queue.Count > 1) StreamResolver.Instance.Prefetch(Queue[1].VideoId);
         }
         catch (Exception e) { Log.Warn($"라디오 불러오기 실패: {e.Message}"); }
+        finally
+        {
+            if (version == _autoVersion)
+            {
+                AutoLoading = false;
+                QueueChanged?.Invoke();
+            }
+        }
     }
 
-    public async Task PlayList(List<Track> list, int start = 0, string? title = null, string? related = null)
+    /// <summary>앨범 · 플레이리스트를 튼다. automix 가 있으면 그 목록, 없으면 마지막 곡의 라디오를 자동재생 구간으로 붙인다</summary>
+    public async Task PlayList(List<Track> list, int start = 0, string? title = null, string? related = null,
+        string? automixPlaylistId = null, string? automixParams = null)
     {
         if (list.Count == 0) return;
         QueueTitle = title;
         RelatedBrowseId = related;
         Queue = new List<Track>(list);
+        AutoStart = Queue.Count;
+        AutoChips = new();
         Index = Math.Clamp(start, 0, list.Count - 1);
+        var version = ++_autoVersion;
         QueueChanged?.Invoke();
-        await Load();
+        var load = Load();
+        if (Autoplay) _ = LoadAuto(automixPlaylistId == null ? list[^1].VideoId : null, automixPlaylistId, automixParams, version);
+        await load;
+    }
+
+    /// <summary>자동재생 칩을 고른다 — 자동재생 구간을 그 알고리즘의 목록으로 바꾼다 (이미 지나간 곡 · 지금 곡은 그대로)</summary>
+    public async Task SelectChip(int i)
+    {
+        if (i < 0 || i >= AutoChips.Count) return;
+        var chip = AutoChips[i];
+        AutoChips = AutoChips.Select((c, k) => c with { Selected = k == i }).ToList();
+        var seed = chip.VideoId ?? Queue.ElementAtOrDefault(Math.Max(0, AutoStart - 1))?.VideoId;
+        await LoadAuto(seed, chip.PlaylistId, chip.Params, keepChips: true);
+    }
+
+    /// <summary>자동재생 구간을 새로 받아 바꿔 끼운다</summary>
+    private async Task LoadAuto(string? videoId, string? playlistId, string? @params, int? version = null, bool keepChips = false)
+    {
+        var v = version ?? ++_autoVersion;
+        if (v != _autoVersion) return;
+        AutoLoading = true;
+        QueueChanged?.Invoke();
+        try
+        {
+            var data = await InnerTube.Instance.GetQueue(videoId, playlistId, @params);
+            if (v != _autoVersion) return;
+            // 지금 곡이 자동재생 구간에 있으면 그 곡까지는 남긴다
+            var keep = Queue.Take(Math.Max(AutoStart, Index + 1)).ToList();
+            var known = keep.Select(t => t.VideoId).ToHashSet();
+            Queue = keep.Concat(data.Tracks.Where(t => known.Add(t.VideoId))).ToList();
+            if (!keepChips || AutoChips.Count == 0) AutoChips = data.Chips;
+            RelatedBrowseId ??= data.RelatedBrowseId;
+            if (Autoplay && Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
+        }
+        catch (Exception e) { Log.Warn($"자동재생 목록 불러오기 실패: {e.Message}"); }
+        finally
+        {
+            if (v == _autoVersion)
+            {
+                AutoLoading = false;
+                QueueChanged?.Invoke();
+            }
+        }
     }
 
     public async Task PlayAt(int index)
@@ -171,7 +246,9 @@ public sealed class PlayerService
     public async Task Next()
     {
         if (Queue.Count == 0) return;
-        if (Index + 1 < Queue.Count) Index++;
+        // 자동재생을 끄면 자동재생 구간은 건너뛴다 (목록 끝 = 사용자가 고른 곡 끝)
+        var end = Autoplay ? Queue.Count : Math.Min(AutoStart, Queue.Count);
+        if (Index + 1 < end) Index++;
         else if (Repeat == RepeatMode.All) Index = 0;
         else
         {
@@ -205,9 +282,11 @@ public sealed class PlayerService
     /// <summary>지금 곡 뒤의 목록을 한 번 섞는다 (YT Music 의 셔플과 같은 '한 번 섞기')</summary>
     public void Shuffle()
     {
-        if (Queue.Count - Index <= 2) return;
-        var rest = Queue.Skip(Index + 1).OrderBy(_ => Random.Shared.Next()).ToList();
-        Queue = Queue.Take(Index + 1).Concat(rest).ToList();
+        // 사용자가 고른 곡들 안에서만 섞는다 (지금 곡이 자동재생 구간이면 그 뒤를)
+        var end = Index < AutoStart ? AutoStart : Queue.Count;
+        if (end - Index <= 2) return;
+        var mid = Queue.Skip(Index + 1).Take(end - Index - 1).OrderBy(_ => Random.Shared.Next());
+        Queue = Queue.Take(Index + 1).Concat(mid).Concat(Queue.Skip(end)).ToList();
         QueueChanged?.Invoke();
     }
 

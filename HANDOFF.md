@@ -19,6 +19,9 @@ YouTube Music 네이티브 윈도우 클라이언트. 원래 쓰던 Electron 앱
   - YoutubeExplode 는 주소는 주지만 재생이 바로 끊겨서 뺐다
 - `src/Core/Mp4Fix.cs` — 일부 곡의 MP4 '편집 목록(edts)' 때문에 Windows 재생기가 열자마자 끝나는 문제 → 상자 이름을 `free` 로 바꿔 무시하게
 - `src/Core/PlayerService.cs` — Windows `MediaPlayer` (미디어 키 · 시스템 미디어 컨트롤 자동). 큐 · 반복 · 셔플(한 번 섞기) · 자동재생
+  - 큐 = 고른 곡들 `Queue[..AutoStart]` + 자동재생 구간 `Queue[AutoStart..]`. 자동재생 끄면 자동재생 구간은 안 틈
+  - 자동재생 칩(전체 · 친숙한 곡 · 인기 · 처음 듣는 곡 · 숨은 명곡 · 2020년대 …)은 `next` 응답의 `musicQueueRenderer.subHeaderChipCloud`. 누르면 칩의 playlistId+params 로 `next` 를 다시 불러 자동재생 구간만 바꾼다 (`SelectChip`)
+  - 앨범 · 플레이리스트 뒤 자동재생은 `automixPreviewVideoRenderer` 의 주소, 없으면 마지막 곡 라디오
 - `src/Core/LyricsService.cs` — LRCLib (`get-cached` → `search`). 요청 제한에 걸린 적이 있어 재시도는 1번만
 - `src/UI/MainWindow.cs` — pear 와 같은 배치: 32px 창 끌기 / 90px 상단 바(≡ · 로고 · 검색 480×40 at x=172) / 72px 레일 / 화면 / 떠 있는 재생 바. 앨범 색 번짐 배경
 - `src/UI/Views.cs` — 셸프 화면(홈 · 둘러보기 · 보관함), 검색 결과

@@ -150,13 +150,21 @@ public sealed class PlayerView : Grid
         Anim.Pressable(save, 0.94f);
         head.Children.Add(save);
         _queueTab.Children.Add(head);
-        var autoRow = new Grid { Height = 46, Margin = new Thickness(8, 0, 8, 4), Padding = new Thickness(8, 0, 2, 0) };
-        var autoText = Theme.Text("자동재생", 14, FontWeights.Medium, Theme.OnSurface);
-        autoText.VerticalAlignment = VerticalAlignment.Center;
+        var autoRow = new Grid { Height = 52, Margin = new Thickness(8, 0, 8, 4), Padding = new Thickness(8, 0, 2, 0), Background = new SolidColorBrush(Colors.Transparent) };
+        var autoText = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1, Margin = new Thickness(0, 0, 60, 0) };
+        autoText.Children.Add(Theme.Text("자동재생", 14, FontWeights.Bold, Theme.OnSurface));
+        autoText.Children.Add(Theme.Text("유사한 콘텐츠를 현재 재생목록 끝에 추가", 12, FontWeights.Normal, Theme.Secondary));
         autoRow.Children.Add(autoText);
-        _autoplay = new OneToggle(_p.Autoplay) { HorizontalAlignment = HorizontalAlignment.Right };
+        _autoplay = new OneToggle(_p.Autoplay) { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         _autoplay.Toggled += on => _p.Autoplay = on;
         autoRow.Children.Add(_autoplay);
+        // 줄 아무 데나 눌러도 켜고 끈다
+        autoRow.Tapped += (_, _) =>
+        {
+            var on = !_p.Autoplay;
+            _autoplay.Set(on, true);
+            _p.Autoplay = on;
+        };
         Grid.SetRow(autoRow, 1);
         _queueTab.Children.Add(autoRow);
         _queueScroll.Content = _queue;
@@ -248,6 +256,10 @@ public sealed class PlayerView : Grid
         ScrollToCurrent();
     }
 
+    /// <summary>
+    /// 다음 트랙 목록 — 고른 곡들, 그 아래 '자동재생 사용 중' + 칩 줄 + 자동재생 곡들 (YT Music 과 같은 배치).
+    /// 자동재생을 끄면 아래 구간은 숨긴다
+    /// </summary>
     private void BuildQueue()
     {
         _source.Text = _p.QueueTitle ?? (_p.Current != null ? $"{_p.Current.Title} 믹스" : "");
@@ -255,15 +267,82 @@ public sealed class PlayerView : Grid
         _queue.Children.Clear();
         _rows.Clear();
         var q = _p.Queue;
-        for (var i = 0; i < q.Count; i++)
+        var autoStart = Math.Min(_p.AutoStart, q.Count);
+        void AddRows(int from, int to, Panel into)
         {
-            var idx = i;
-            var row = new TrackRow(q[i], divider: i < q.Count - 1 && i != _p.Index && i + 1 != _p.Index);
-            row.Click += r => _ = _p.PlayAt(idx);
-            row.SetCurrent(i == _p.Index);
-            _rows.Add(row);
-            _queue.Children.Add(row);
+            for (var i = from; i < to; i++)
+            {
+                var idx = i;
+                var row = new TrackRow(q[i], divider: i < to - 1 && i != _p.Index && i + 1 != _p.Index);
+                row.Click += r => _ = _p.PlayAt(idx);
+                row.SetCurrent(i == _p.Index);
+                _rows.Add(row);
+                into.Children.Add(row);
+            }
         }
+        var user = new StackPanel { Spacing = 2 };
+        AddRows(0, autoStart, user);
+        _queue.Children.Add(user);
+
+        if (!_p.Autoplay) return;
+        var section = new StackPanel { Spacing = 2 };
+        var label = Theme.Text("자동재생 사용 중", 14, FontWeights.Bold, Theme.Secondary);
+        label.Margin = new Thickness(16, 24, 8, 12);
+        section.Children.Add(label);
+        if (_p.AutoChips.Count > 0) section.Children.Add(BuildAutoChips());
+        var autoRows = new StackPanel { Spacing = 2 };
+        AddRows(autoStart, q.Count, autoRows);
+        if (q.Count == autoStart && _p.AutoLoading)
+        {
+            var wait = Theme.Text("비슷한 곡을 찾는 중…", 14, FontWeights.SemiBold, Theme.Secondary);
+            wait.Margin = new Thickness(16, 8, 8, 8);
+            autoRows.Children.Add(wait);
+        }
+        // 칩을 바꿔 다시 받는 동안은 지금 목록을 흐리게
+        Anim.Opacity(autoRows, _p.AutoLoading && q.Count > autoStart ? 0.45f : 1f, 220);
+        section.Children.Add(autoRows);
+        _queue.Children.Add(section);
+    }
+
+    private ScrollViewer? _chipScroll;
+
+    /// <summary>자동재생 칩 줄 — 36px 알약, 고르면 흰 칩 · 검은 글씨, 휠로 옆으로 넘김 (pear 의 OneUiChip)</summary>
+    private FrameworkElement BuildAutoChips()
+    {
+        var offset = _chipScroll?.HorizontalOffset ?? 0;
+        var sv = ShelvesView.HorizontalRow(out var row);
+        _chipScroll = sv;
+        row.Spacing = 8;
+        row.Padding = new Thickness(8, 0, 8, 12);
+        // 칩 줄 위에서는 Shift 없이도 휠로 옆으로
+        sv.PointerWheelChanged += (_, e) =>
+        {
+            var props = e.GetCurrentPoint(sv).Properties;
+            if (props.IsHorizontalMouseWheel || sv.ScrollableWidth <= 0) return;
+            sv.ChangeView(sv.HorizontalOffset - props.MouseWheelDelta, null, null);
+            e.Handled = true;
+        };
+        for (var i = 0; i < _p.AutoChips.Count; i++)
+        {
+            var c = _p.AutoChips[i];
+            var idx = i;
+            var chip = new Border
+            {
+                Height = 36,
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(14, 0, 14, 0),
+                Background = Theme.B(c.Selected ? Colors.White : Theme.Chip),
+                Child = Theme.Text(c.Text, 14, FontWeights.SemiBold, c.Selected ? Colors.Black : Theme.OnSurface),
+            };
+            ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
+            chip.PointerEntered += (_, _) => { if (!c.Selected) chip.Background = Theme.B(Theme.Selected); };
+            chip.PointerExited += (_, _) => { if (!c.Selected) chip.Background = Theme.B(Theme.Chip); };
+            Anim.Pressable(chip, 0.94f);
+            chip.Tapped += (_, _) => { if (!c.Selected) _ = _p.SelectChip(idx); };
+            row.Children.Add(chip);
+        }
+        sv.Loaded += (_, _) => sv.ChangeView(offset, null, null, true);
+        return sv;
     }
 
     /// <summary>관련 항목 — 지금 곡의 '관련' 페이지 셸프들을 패널 안에 세로로</summary>

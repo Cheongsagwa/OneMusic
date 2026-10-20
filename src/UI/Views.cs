@@ -26,7 +26,7 @@ public static class Play
             if (c.PlaylistId != null)
             {
                 var q = await InnerTube.Instance.GetQueue(c.VideoId, c.PlaylistId);
-                if (q.Tracks.Count > 0) await p.PlayList(q.Tracks, 0, q.Title ?? c.Title, q.RelatedBrowseId);
+                if (q.Tracks.Count > 0) await p.PlayList(q.Tracks, 0, q.Title ?? c.Title, q.RelatedBrowseId, q.AutomixPlaylistId, q.AutomixParams);
                 return;
             }
             if (c.BrowseId != null)
@@ -219,7 +219,7 @@ public sealed class ShelvesView : ScrollPage
         return sv;
     }
 
-    private static ScrollViewer HorizontalRow(out StackPanel row)
+    internal static ScrollViewer HorizontalRow(out StackPanel row)
     {
         var sv = new ScrollViewer
         {

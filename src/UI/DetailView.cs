@@ -246,7 +246,7 @@ public sealed class DetailView : ScrollPage
         try
         {
             var q = await InnerTube.Instance.GetQueue(null, playlistId);
-            if (q.Tracks.Count > 0) await PlayerService.Instance.PlayList(q.Tracks, 0, q.Title ?? title, q.RelatedBrowseId);
+            if (q.Tracks.Count > 0) await PlayerService.Instance.PlayList(q.Tracks, 0, q.Title ?? title, q.RelatedBrowseId, q.AutomixPlaylistId, q.AutomixParams);
         }
         catch (Exception e) { Log.Error("목록 재생 실패", e); }
     }

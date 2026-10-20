@@ -37,8 +37,19 @@ public sealed record Chip(string Text, string? BrowseId, string? Params, bool Se
 
 public sealed record HomeData(List<Chip> Chips, List<Shelf> Shelves);
 
-/// <summary>다음 트랙 목록 + 출처 이름(예: 'NEW YORK 믹스') + 관련 항목 페이지</summary>
-public sealed record QueueData(List<Track> Tracks, string? Title, string? RelatedBrowseId);
+/// <summary>
+/// 다음 트랙 목록 + 출처 이름(예: 'NEW YORK 믹스') + 관련 항목 페이지
+/// + 자동재생 칩(전체 · 친숙한 곡 · 인기 · 2020년대 …) + 플레이리스트 뒤에 이어 붙일 자동재생 목록 주소
+/// </summary>
+public sealed record QueueData(List<Track> Tracks, string? Title, string? RelatedBrowseId)
+{
+    public List<QueueChip> Chips { get; init; } = new();
+    public string? AutomixPlaylistId { get; init; }
+    public string? AutomixParams { get; init; }
+}
+
+/// <summary>자동재생 칩 하나 — 누르면 이 주소(next)로 자동재생 목록을 다시 받는다</summary>
+public sealed record QueueChip(string Text, string? VideoId, string? PlaylistId, string? Params, bool Selected);
 
 public enum PageKind { Album, Playlist, Artist }
 

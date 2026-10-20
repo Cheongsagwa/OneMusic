@@ -207,7 +207,11 @@ public sealed class InnerTube
     public async Task<List<Track>> Queue(string? videoId, string? playlistId, CancellationToken ct = default) =>
         (await GetQueue(videoId, playlistId, ct)).Tracks;
 
-    public async Task<QueueData> GetQueue(string? videoId, string? playlistId, CancellationToken ct = default)
+    public async Task<QueueData> GetQueue(string? videoId, string? playlistId, CancellationToken ct = default) =>
+        await GetQueue(videoId, playlistId, null, ct);
+
+    /// <summary>params 는 자동재생 칩(친숙한 곡 · 2020년대 …) · 자동재생 목록이 주는 값 그대로</summary>
+    public async Task<QueueData> GetQueue(string? videoId, string? playlistId, string? @params, CancellationToken ct = default)
     {
         var body = new JsonObject
         {
@@ -217,7 +221,17 @@ public sealed class InnerTube
         };
         if (videoId != null) body["videoId"] = videoId;
         body["playlistId"] = playlistId ?? (videoId != null ? "RDAMVM" + videoId : null);
+        if (@params != null) body["params"] = @params;
         var json = await Post("next", body, ct);
+        // 자동재생 칩: musicQueueRenderer.subHeaderChipCloud 안의 칩들. 누르면 queueUpdateCommand 의 watchEndpoint 로 다시 부른다
+        var chips = json.FindFirst("musicQueueRenderer").P("subHeaderChipCloud").FindAll("chipCloudChipRenderer").Select(c =>
+        {
+            var ep = c.P("navigationEndpoint").FindFirst("watchEndpoint") ?? c.P("navigationEndpoint").FindFirst("watchPlaylistEndpoint");
+            return new QueueChip(c.P("text").Text(), ep.P("videoId").Str(), ep.P("playlistId").Str(), ep.P("params").Str(),
+                c.P("isSelected")?.GetValue<bool>() == true);
+        }).Where(c => c.Text.Length > 0 && (c.PlaylistId != null || c.Params != null)).ToList();
+        // 플레이리스트 · 앨범 뒤의 '자동재생' 미리보기 → 이어 붙일 목록 주소
+        var automix = json.FindFirst("automixPreviewVideoRenderer").FindFirst("watchPlaylistEndpoint");
         var list = new List<Track>();
         var panel = json.FindFirst("playlistPanelRenderer");
         var title = panel.P("title").Text();
@@ -225,7 +239,8 @@ public sealed class InnerTube
         foreach (var tab in json.FindAll("tabRenderer"))
             if (tab.P("endpoint", "browseEndpoint", "browseEndpointContextSupportedConfigs", "browseEndpointContextMusicConfig", "pageType").Str() == "MUSIC_PAGE_TYPE_TRACK_RELATED")
                 related = tab.P("endpoint", "browseEndpoint", "browseId").Str();
-        if (panel.P("contents") is not JsonArray items) return new QueueData(list, title, related);
+        var extra = (QueueData q) => q with { Chips = chips, AutomixPlaylistId = automix.P("playlistId").Str(), AutomixParams = automix.P("params").Str() };
+        if (panel.P("contents") is not JsonArray items) return extra(new QueueData(list, title, related));
         foreach (var item in items)
         {
             // 한 줄에 '음원(ATV)'과 '뮤직비디오(OMV)'가 함께 들어 있는 경우가 많다 → 음원만 고른다
@@ -239,7 +254,7 @@ public sealed class InnerTube
             }
             if (chosen != null && ParsePanel(chosen) is { } t) list.Add(t);
         }
-        return new QueueData(list.DistinctBy(t => t.VideoId).ToList(), title.Length > 0 ? title : null, related);
+        return extra(new QueueData(list.DistinctBy(t => t.VideoId).ToList(), title.Length > 0 ? title : null, related));
     }
 
     /// <summary>앨범 · 플레이리스트 · 아티스트 페이지의 곡들</summary>
