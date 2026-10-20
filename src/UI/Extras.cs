@@ -1,7 +1,8 @@
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using OneMusic.Core;
-using Windows.System;
+using Launcher = Windows.System.Launcher;
+using VirtualKey = Windows.System.VirtualKey;
 
 namespace OneMusic.UI;
 
