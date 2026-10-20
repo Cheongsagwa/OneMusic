@@ -5,7 +5,7 @@ namespace OneMusic.UI;
 /// <summary>
 /// 미니 플레이어 (pear picture-in-picture) — 창을 작게 '항상 위' 로 띄우고 앨범아트를 꽉 채운다.
 /// 아래는 어둡게 번진 곡명 · 가수 + 얇은 재생 위치, 마우스를 올리면 가운데에 이전 · 재생 · 다음,
-/// 오른쪽 위에 '원래 크기로'. 맨 위 줄을 잡고 창을 옮긴다
+/// 왼쪽 위에 '원래 크기로'(두 번 눌러도 됨). 맨 위 줄을 잡고 창을 옮긴다
 /// </summary>
 public sealed class MiniPlayer : Grid
 {
@@ -18,8 +18,8 @@ public sealed class MiniPlayer : Grid
     private readonly XRect _progress = new() { Height = 3, Fill = Theme.B(Colors.White), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom };
     private readonly DispatcherQueueTimer _tick;
     private bool _playing;
-    /// <summary>창 끌기 영역 (맨 위 40px)</summary>
-    public Grid DragArea { get; } = new() { Height = 40, VerticalAlignment = VerticalAlignment.Top, Background = new SolidColorBrush(Colors.Transparent) };
+    /// <summary>창 끌기 영역 (맨 위 34px)</summary>
+    public Grid DragArea { get; } = new() { Height = 34, VerticalAlignment = VerticalAlignment.Top, Background = new SolidColorBrush(Colors.Transparent) };
     public event Action? ExitRequested;
 
     public MiniPlayer()
@@ -68,13 +68,13 @@ public sealed class MiniPlayer : Grid
         Children.Add(_controls);
 
         Children.Add(DragArea);
-        // 오른쪽 위: 원래 크기로 (창 끌기 영역 위에 얹는다)
+        // 왼쪽 위(창 끌기 줄 바로 밑): 원래 크기로 — 끌기 줄 위는 눌리지 않고, 오른쪽 위에는 창 닫기 단추가 있다
         var exit = new IconButton(36)
         {
             Content = Theme.Icon(Icons.Pip, 20, Colors.White, stroke: true, strokeWidth: 1.8),
-            HorizontalAlignment = HorizontalAlignment.Right,
+            HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 6, 6, 0),
+            Margin = new Thickness(8, 40, 0, 0),
         };
         Tip.Set(exit, "원래 크기로");
         exit.Click += () => ExitRequested?.Invoke();
