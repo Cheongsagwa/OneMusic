@@ -99,6 +99,18 @@ public sealed class PlayerService
     }
     public bool Loading { get; private set; }
 
+    /// <summary>재생 속도 (pear playback-speed) — 곡이 바뀌어도 그대로</summary>
+    public double Speed
+    {
+        get => _speed;
+        set
+        {
+            _speed = Math.Clamp(value, 0.25, 3);
+            _mp.PlaybackSession.PlaybackRate = _speed;
+        }
+    }
+    private double _speed = 1;
+
     /// <summary>재생기 (재생 화면이 동영상을 그릴 때 MediaPlayerElement 에 붙인다)</summary>
     public MediaPlayer Media => _mp;
 
@@ -151,6 +163,7 @@ public sealed class PlayerService
         {
             _openedAt = DateTime.UtcNow;
             Loading = false;
+            if (Math.Abs(_speed - 1) > 0.001) _mp.PlaybackSession.PlaybackRate = _speed;
             // 노래 ↔ 동영상 전환이면 듣던 자리에서 이어서
             if (_resumeAt > 1)
             {
@@ -564,10 +577,8 @@ public sealed class PlayerService
             {
                 var bytes = await StreamResolver.Instance.Audio(t.VideoId, fallback, ct);
                 if (ct.IsCancellationRequested) return;
-                var ras = new InMemoryRandomAccessStream();
-                await ras.WriteAsync(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
-                ras.Seek(0);
-                if (ct.IsCancellationRequested) return;
+                // 받아 둔 배열을 그대로 감싸서 넘긴다 (복사하지 않아 곡 하나만큼 메모리를 아낀다)
+                var ras = new MemoryStream(bytes, writable: false).AsRandomAccessStream();
                 item = new MediaPlaybackItem(MediaSource.CreateFromStream(ras, "audio/mp4"));
             }
             if (PlayingVideo != (vid != null))

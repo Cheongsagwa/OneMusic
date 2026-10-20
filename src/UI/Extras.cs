@@ -25,6 +25,8 @@ public static class Shortcuts
         ("S", "셔플"),
         ("+ · −", "좋아요 · 싫어요"),
         ("F", "재생 화면 열기 / 닫기"),
+        ("I", "미니 플레이어"),
+        ("< · >", "재생 속도 느리게 · 빠르게"),
         ("/ · Ctrl + F", "검색"),
         ("Alt + ← · →", "뒤로 · 앞으로"),
         ("Esc", "메뉴 · 재생 화면 닫기, 뒤로"),
@@ -98,6 +100,20 @@ public static class Shortcuts
             case VirtualKey.F:
                 w.TogglePlayer();
                 return true;
+            case VirtualKey.I when !ctrl:
+                w.ToggleMini();
+                return true;
+            case (VirtualKey)188 when shift: // '<'
+            case (VirtualKey)190 when shift: // '>'
+            {
+                var steps = SpeedMenu.Steps;
+                var i = Array.FindIndex(steps, s => Math.Abs(s - p.Speed) < 0.01);
+                if (i < 0) i = Array.IndexOf(steps, 1.0);
+                i = Math.Clamp(i + (e.Key == (VirtualKey)190 ? 1 : -1), 0, steps.Length - 1);
+                p.Speed = steps[i];
+                Toast.Show($"재생 속도 {SpeedMenu.Label(p.Speed)}");
+                return true;
+            }
             case (VirtualKey)187: // '=' / '+'
             case VirtualKey.Add:
                 if (p.Current is { } liked) _ = Rate(liked, true);
@@ -127,6 +143,31 @@ public static class Shortcuts
         foreach (var (k, what) in List) m.Info(k, what);
         var size = w.Root.XamlRoot?.Size ?? new Size(1200, 800);
         m.Show(w.Root, new Point(size.Width / 2 - 190, 110));
+    }
+}
+
+/// <summary>재생 속도 (pear playback-speed) — 0.5 ~ 2배</summary>
+public static class SpeedMenu
+{
+    public static readonly double[] Steps = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
+    public static string Label(double s) => Math.Abs(s - 1) < 0.001 ? "보통" : $"{s:0.##}배";
+
+    public static void Show(FrameworkElement at)
+    {
+        var p = PlayerService.Instance;
+        var m = new OneMenu();
+        m.Header($"재생 속도 · {Label(p.Speed)}");
+        foreach (var s in Steps)
+        {
+            var v = s;
+            m.Item(Math.Abs(s - p.Speed) < 0.01 ? $"{Label(s)}  ✓" : Label(s), Icons.Speed, () =>
+            {
+                p.Speed = v;
+                Toast.Show($"재생 속도 {Label(v)}");
+            });
+        }
+        m.Show(at);
     }
 }
 
@@ -240,6 +281,8 @@ public static class AccountMenu
     {
         var s = Settings.Current;
         var m = new OneMenu(width: 300);
+        m.Item("미니 플레이어", Icons.Pip, () => w.ToggleMini());
+        m.Item($"재생 속도 · {SpeedMenu.Label(PlayerService.Instance.Speed)}", Icons.Speed, () => SpeedMenu.Show(at), keepOpen: true);
         m.Item($"취침 타이머 · {SleepTimer.Label}", Icons.Moon, () => SleepTimer.ShowMenu(at), keepOpen: true);
         m.Item($"곡 바뀜 알림 · {(s.Notifications ? "켜짐" : "꺼짐")}", Icons.Bell, () =>
         {

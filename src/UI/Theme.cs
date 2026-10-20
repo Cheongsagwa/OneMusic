@@ -198,6 +198,10 @@ public static class Icons
     public const string Link = "M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1 M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1";
     public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";
     public const string ChevronUp = "M6 14.6 12 8.6l6 6";
+    /// <summary>미니 플레이어 (큰 네모 안 오른쪽 아래 작은 네모)</summary>
+    public const string Pip = "M4.5 5h15a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5z M12.5 12.2h5.3v3.8h-5.3z";
+    /// <summary>재생 속도 (계기판)</summary>
+    public const string Speed = "M4.2 17.5a8.5 8.5 0 1 1 15.6 0 M12 13.2l4-4.2 M12 13.2a1 1 0 1 0 0.01 0";
     public const string Search = "M10.8 4.2a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2z M15.6 15.6 20 20";
     public const string Home = "M4.5 10.2 12 4.2l7.5 6v8.4c0 .7-.5 1.2-1.2 1.2H14v-5.4h-4v5.4H5.7c-.7 0-1.2-.5-1.2-1.2z";
     public const string Close = "M6.5 6.5l11 11 M17.5 6.5l-11 11";

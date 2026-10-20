@@ -38,6 +38,7 @@ public sealed class MainWindow : Window
     private AutoSuggestBox _search = null!;
     private CancellationTokenSource? _suggestCts;
     private Color _accent = AlbumColor.Fallback;
+    private Color _washColor;
     private DevBridge? _dev;
 
     public MainWindow()
@@ -53,8 +54,9 @@ public sealed class MainWindow : Window
         AppWindow.TitleBar.ButtonHoverBackgroundColor = Color.FromArgb(30, 255, 255, 255);
         AppWindow.Closing += (_, _) =>
         {
-            Settings.Current.WindowWidth = AppWindow.Size.Width;
-            Settings.Current.WindowHeight = AppWindow.Size.Height;
+            var size = IsMini ? _normalSize : AppWindow.Size;
+            Settings.Current.WindowWidth = size.Width;
+            Settings.Current.WindowHeight = size.Height;
             Settings.Current.Save();
             App.SaveSession();
             // 이어 듣기: 지금 목록 · 위치를 남긴다
@@ -94,6 +96,7 @@ public sealed class MainWindow : Window
         Grid.SetColumnSpan(drag, 2);
         layout.Children.Add(drag);
         SetTitleBar(drag);
+        _drag = drag;
 
         // 상단 바: ≡ · 로고 · 검색(480×40 알약) · 설정
         _nav = new Grid();
@@ -640,6 +643,54 @@ public sealed class MainWindow : Window
         catch (Exception ex) { Log.Warn($"추천 검색어 실패: {ex.Message}"); }
     }
 
+    // ───────────────────────── 미니 플레이어 (pear picture-in-picture) ─────────────────────────
+
+    private MiniPlayer? _mini;
+    private Grid _drag = null!;
+    private SizeInt32 _normalSize;
+    private PointInt32 _normalPos;
+    public bool IsMini { get; private set; }
+
+    /// <summary>작게 '항상 위' 로 ↔ 원래대로 (창 크기 · 자리도 돌려 놓는다)</summary>
+    public void ToggleMini()
+    {
+        if (_mini == null)
+        {
+            _mini = new MiniPlayer();
+            _mini.ExitRequested += ToggleMini;
+            Root.Children.Add(_mini);
+        }
+        IsMini = !IsMini;
+        var scale = Root.XamlRoot?.RasterizationScale ?? 1;
+        if (IsMini)
+        {
+            _normalSize = AppWindow.Size;
+            _normalPos = AppWindow.Position;
+            OneMenu.CloseAll();
+            ClosePlayer();
+            _drop?.Hide();
+            _layoutGrid.Visibility = Visibility.Collapsed;
+            Bar.Visibility = Visibility.Collapsed;
+            _mini.Visibility = Visibility.Visible;
+            _mini.Start();
+            SetTitleBar(_mini.DragArea);
+            AppWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay);
+            AppWindow.Resize(new SizeInt32((int)(340 * scale), (int)(340 * scale)));
+        }
+        else
+        {
+            _mini.Stop();
+            _mini.Visibility = Visibility.Collapsed;
+            _layoutGrid.Visibility = Visibility.Visible;
+            Bar.Visibility = Visibility.Visible;
+            SetTitleBar(_drag);
+            AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+            AppWindow.Resize(_normalSize);
+            AppWindow.Move(_normalPos);
+            Anim.Appear(_layoutGrid, 0, 0);
+        }
+    }
+
     private bool _barShown = true;
     private string? _notifiedFor;
 
@@ -677,16 +728,33 @@ public sealed class MainWindow : Window
     /// 앨범 색 번짐 (pear 테마의 --oneui-album-wash 와 같은 두 개의 타원):
     /// 오른쪽 위 1100×720 (58%) · 왼쪽 아래 900×640 (36%). 새 색 층이 서서히 나타나고 옛 층은 사라진다.
     /// </summary>
+    /// <summary>지금 번짐 층의 붓들 — 창 크기만 바뀌면 새로 만들지 않고 가운데만 옮긴다</summary>
+    private readonly List<(RadialGradientBrush Brush, double Fx, double Fy)> _washBrushes = new();
+
     private void SetWash(Color c, bool animate)
     {
         var w = Math.Max(1, Root.ActualWidth);
         var h = Math.Max(1, Root.ActualHeight);
+        if (!animate && _washBrushes.Count > 0 && c == _washColor)
+        {
+            foreach (var (brush, fx, fy) in _washBrushes)
+                brush.Center = brush.GradientOrigin = new Point(w * fx, h * fy);
+            return;
+        }
+        _washColor = c;
+        _washBrushes.Clear();
+        RadialGradientBrush Wash(Color color, double fx, double fy, double rx, double ry)
+        {
+            var b = Radial(color, new Point(w * fx, h * fy), rx, ry);
+            _washBrushes.Add((b, fx, fy));
+            return b;
+        }
         var layer = new Grid { IsHitTestVisible = false };
-        layer.Children.Add(new XRect { Fill = Radial(c.WithAlpha(0.58), new Point(w * 0.88, -h * 0.12), 1100, 720) });
-        layer.Children.Add(new XRect { Fill = Radial(c.WithAlpha(0.36), new Point(-w * 0.08, h * 1.08), 900, 640) });
+        layer.Children.Add(new XRect { Fill = Wash(c.WithAlpha(0.58), 0.88, -0.12, 1100, 720) });
+        layer.Children.Add(new XRect { Fill = Wash(c.WithAlpha(0.36), -0.08, 1.08, 900, 640) });
         // 재생 화면 진한 앨범 색
         _playerWash.Children.Clear();
-        _playerWash.Children.Add(new XRect { Fill = Radial(c.WithAlpha(0.5), new Point(w * 0.3, h * 0.45), 900, 700) });
+        _playerWash.Children.Add(new XRect { Fill = Wash(c.WithAlpha(0.5), 0.3, 0.45, 900, 700) });
         var old = _wash.Children.ToList();
         _wash.Children.Add(layer);
         if (!animate)

@@ -163,6 +163,8 @@ public sealed class WashFade : Grid
     private void Sync()
     {
         if (_sprite == null || _surface == null || Source == null || ActualWidth <= 0) return;
+        // 숨은 화면(뒤로 쌓인 상세 화면 · 다른 탭)은 건너뛴다 — LayoutUpdated 는 앱 어디서든 배치가 바뀔 때마다 오므로
+        if (Parent is UIElement { Visibility: Visibility.Collapsed }) return;
         try
         {
             var pos = TransformToVisual(Source).TransformPoint(new Point(0, 0));
@@ -186,6 +188,13 @@ public static class ListFade
 {
     public static void Attach(ScrollViewer sv, bool horizontal = false, double start = 44, double end = 56)
     {
+        // 지난번에 흐리게 한 줄들 — 끝에서 벗어나면 다시 1 로
+        var faded = new HashSet<FrameworkElement>();
+        (double Lo, double Hi) Span(FrameworkElement item)
+        {
+            var r = item.TransformToVisual(sv).TransformBounds(new Rect(0, 0, item.ActualWidth, item.ActualHeight));
+            return horizontal ? (r.Left, r.Right) : (r.Top, r.Bottom);
+        }
         void Update()
         {
             if (sv.Content is not FrameworkElement content) return;
@@ -194,23 +203,39 @@ public static class ListFade
             var scrollable = horizontal ? sv.ScrollableWidth : sv.ScrollableHeight;
             var fadeStart = offset > 1 ? start : 0;
             var fadeEnd = offset < scrollable - 1 ? end : 0;
-            foreach (var item in Items(content))
+            var items = Items(content).ToList();
+            if (items.Count == 0) return;
+            var touched = new HashSet<FrameworkElement>();
+            try
             {
-                double a = 1;
-                try
+                // 줄은 위에서 아래로 놓여 있으니 화면에 걸친 첫 줄을 반으로 나눠 찾고, 화면 끝까지만 본다 (수백 줄이어도 몇십 번)
+                int lo = 0, hi = items.Count - 1;
+                while (lo < hi)
                 {
-                    var r = item.TransformToVisual(sv).TransformBounds(new Rect(0, 0, item.ActualWidth, item.ActualHeight));
-                    var lo = horizontal ? r.Left : r.Top;
-                    var hi = horizontal ? r.Right : r.Bottom;
-                    var mid = (lo + hi) / 2;
+                    var midIdx = (lo + hi) / 2;
+                    if (Span(items[midIdx]).Hi <= 0) lo = midIdx + 1;
+                    else hi = midIdx;
+                }
+                for (var i = Math.Max(0, lo - 1); i < items.Count; i++)
+                {
+                    var item = items[i];
+                    var (a0, a1) = Span(item);
+                    if (a0 > size) break;
+                    var mid = (a0 + a1) / 2;
+                    double a = 1;
                     if (fadeStart > 0) a = Math.Min(a, Math.Clamp(mid / fadeStart, 0, 1));
                     if (fadeEnd > 0) a = Math.Min(a, Math.Clamp((size - mid) / fadeEnd, 0, 1));
+                    // 0.15 밑으로는 안 내려서 끝에 걸친 줄도 무엇인지는 보이게
+                    var op = a >= 1 ? 1 : 0.15 + 0.85 * a;
+                    if (Math.Abs(item.Opacity - op) > 0.01) item.Opacity = op;
+                    if (op < 1) touched.Add(item);
                 }
-                catch { }
-                // 0.15 밑으로는 안 내려서 끝에 걸친 줄도 무엇인지는 보이게
-                var op = a >= 1 ? 1 : 0.15 + 0.85 * a;
-                if (Math.Abs(item.Opacity - op) > 0.01) item.Opacity = op;
             }
+            catch { /* 아직 배치 전 */ }
+            foreach (var old in faded)
+                if (!touched.Contains(old) && old.Opacity < 1) old.Opacity = 1;
+            faded.Clear();
+            faded.UnionWith(touched);
         }
         sv.ViewChanged += (_, _) => Update();
         sv.SizeChanged += (_, _) => Update();

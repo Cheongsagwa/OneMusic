@@ -169,10 +169,15 @@ public sealed class FloatingBar : Grid
         open.Content = openGrid;
         Tip.Set(open, "재생 화면 열기");
         open.Click += () => OpenPlayer?.Invoke();
+        // 미니 플레이어 (pear picture-in-picture)
+        var pip = new IconButton(36) { Content = Theme.Icon(Icons.Pip, 22, Colors.White, stroke: true, strokeWidth: 1.7) };
+        Tip.Set(pip, "미니 플레이어");
+        pip.Click += () => App.MainWin?.ToggleMini();
         right.Children.Add(_volSlider);
         right.Children.Add(_volume);
         right.Children.Add(_repeat);
         right.Children.Add(_shuffle);
+        right.Children.Add(pip);
         right.Children.Add(open);
         Grid.SetColumn(right, 2);
         row.Children.Add(right);
