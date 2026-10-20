@@ -16,6 +16,8 @@ public sealed class Offline
     public static string DownloadDir { get; } = IOPath.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "OneMusic");
 
     private readonly List<Track> _tracks;
+    /// <summary>저장한 곡 ID (재생할 때마다 물어보므로 목록을 훑지 않게)</summary>
+    private readonly HashSet<string> _ids = new();
     private readonly HashSet<string> _busy = new();
     public event Action? Changed;
 
@@ -26,6 +28,7 @@ public sealed class Offline
         {
             _tracks = File.Exists(IndexPath) ? JsonSerializer.Deserialize<List<Track>>(File.ReadAllText(IndexPath)) ?? new() : new();
             _tracks.RemoveAll(t => !File.Exists(PathOf(t.VideoId)));
+            foreach (var t in _tracks) _ids.Add(t.VideoId);
         }
         catch (Exception e)
         {
@@ -37,7 +40,7 @@ public sealed class Offline
     /// <summary>최근에 저장한 것이 앞</summary>
     public IReadOnlyList<Track> Tracks { get { lock (_tracks) return _tracks.ToList(); } }
 
-    public bool Has(string videoId) { lock (_tracks) return _tracks.Any(t => t.VideoId == videoId); }
+    public bool Has(string videoId) { lock (_tracks) return _ids.Contains(videoId); }
     public bool IsBusy(string videoId) { lock (_busy) return _busy.Contains(videoId); }
 
     private static string PathOf(string videoId) => IOPath.Combine(Dir, videoId + ".m4a");
@@ -61,7 +64,8 @@ public sealed class Offline
             lock (_tracks)
             {
                 _tracks.RemoveAll(x => x.VideoId == t.VideoId);
-                _tracks.Insert(0, t);
+                _tracks.Insert(0, t with { Menu = null });
+                _ids.Add(t.VideoId);
             }
             WriteIndex();
             Log.Info($"오프라인 저장: {t.Artist} - {t.Title}");
@@ -81,7 +85,11 @@ public sealed class Offline
 
     public void Remove(string videoId)
     {
-        lock (_tracks) _tracks.RemoveAll(x => x.VideoId == videoId);
+        lock (_tracks)
+        {
+            _tracks.RemoveAll(x => x.VideoId == videoId);
+            _ids.Remove(videoId);
+        }
         try { File.Delete(PathOf(videoId)); } catch { }
         WriteIndex();
         Changed?.Invoke();
@@ -103,6 +111,17 @@ public sealed class Offline
         if (name.Length > 150) name = name[..150];
         var path = IOPath.Combine(DownloadDir, name + ".m4a");
         await File.WriteAllBytesAsync(path, bytes);
+        // 탐색기 · 다른 음악 앱에서 보이게 곡 정보(제목 · 가수 · 앨범)를 파일에 적는다 (pear downloader 처럼)
+        try
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            var props = await file.Properties.GetMusicPropertiesAsync();
+            props.Title = t.Title;
+            props.Artist = t.Artist;
+            if (t.Album != null) props.Album = t.Album;
+            await props.SavePropertiesAsync();
+        }
+        catch (Exception e) { Log.Warn($"곡 정보 쓰기 실패: {e.Message}"); }
         Log.Info($"다운로드: {path}");
         return path;
     }

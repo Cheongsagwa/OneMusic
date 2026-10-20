@@ -44,7 +44,12 @@ public sealed class LyricsService
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) { Log.Warn($"가사({source}) 실패: {e.Message}"); }
         Log.Info($"가사 {source}: {(r == null ? "없음" : $"{r.Lines.Count}줄 {(r.Synced ? "시간 있음" : "글자만")}")} — {t.Artist} - {t.Title}");
-        lock (_bySource) _bySource[(t.VideoId, source)] = r;
+        lock (_bySource)
+        {
+            // 오래 들으면 끝없이 쌓이지 않게 (곡 수백 개쯤이면 비운다)
+            if (_bySource.Count > 600) _bySource.Clear();
+            _bySource[(t.VideoId, source)] = r;
+        }
         return r;
     }
 

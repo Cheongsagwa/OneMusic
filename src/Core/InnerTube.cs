@@ -219,20 +219,6 @@ public sealed class InnerTube
 
     // ───────────────────────── 가사 (YT Music) ─────────────────────────
 
-    /// <summary>YT Music 자체 가사 — next 의 '가사' 탭 browseId 로 browse. 시간 정보 없는 글자만 온다</summary>
-    public async Task<string?> YtLyrics(string videoId, CancellationToken ct = default)
-    {
-        var next = await Post("next", new JsonObject { ["videoId"] = videoId, ["isAudioOnly"] = true }, ct);
-        string? id = null;
-        foreach (var tab in next.FindAll("tabRenderer"))
-            if (tab.P("endpoint", "browseEndpoint", "browseEndpointContextSupportedConfigs", "browseEndpointContextMusicConfig", "pageType").Str() == "MUSIC_PAGE_TYPE_TRACK_LYRICS")
-                id = tab.P("endpoint", "browseEndpoint", "browseId").Str();
-        if (id == null) return null;
-        var json = await Post("browse", new JsonObject { ["browseId"] = id }, ct);
-        var text = json.FindFirst("musicDescriptionShelfRenderer").P("description").Text();
-        return text.Length > 0 ? text : null;
-    }
-
     /// <summary>
     /// pear synced-lyrics 의 YTMusic 출처: next 의 '가사' 탭 browseId 를 iOS 앱(clientName 26, 7.01.05) 으로 browse 하면
     /// 시간 있는 가사(timedLyricsModel — 줄마다 시작 · 끝 ms)가 온다. 없으면 글자 가사(설명 칸 · 안내 문구)
@@ -481,9 +467,6 @@ public sealed class InnerTube
         var json = await Post("account/account_menu", new JsonObject(), ct);
         return json.FindFirst("accountPhoto").BestThumb();
     }
-
-    public async Task<List<string>> Suggestions(string input, CancellationToken ct = default) =>
-        (await SuggestionsFull(input, ct)).Words;
 
     /// <summary>검색어 추천 + 바로 갈 수 있는 결과(곡 · 동영상 · 아티스트 · 앨범) — pear 검색창 드롭다운처럼</summary>
     public async Task<(List<string> Words, List<SearchItem> Items)> SuggestionsFull(string input, CancellationToken ct = default)

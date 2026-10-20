@@ -151,7 +151,15 @@ public sealed class StreamResolver
                 return c.Url;
         }
         string url;
-        url = await ViaYtDlp(videoId, ct);
+        try { url = await ViaYtDlp(videoId, ct); }
+        catch (Exception e) when (e is not OperationCanceledException && !_updatedAfterFail)
+        {
+            // YouTube 가 바뀌어서 옛 yt-dlp 가 실패하는 경우가 많다 → 한 번 새 버전으로 올리고 다시
+            _updatedAfterFail = true;
+            Log.Warn($"yt-dlp 실패 → 업데이트 후 다시: {e.Message}");
+            await UpdateYtDlp();
+            url = await ViaYtDlp(videoId, ct);
+        }
         Remember(videoId, url);
         LastSource = "yt-dlp";
         return url;
@@ -159,7 +167,53 @@ public sealed class StreamResolver
 
     private void Remember(string id, string url)
     {
-        lock (_cache) _cache[id] = (url, DateTime.UtcNow);
+        lock (_cache)
+        {
+            // 한 시간 지난 주소는 어차피 다시 받으니 버린다
+            if (_cache.Count > 200)
+                foreach (var k in _cache.Where(x => DateTime.UtcNow - x.Value.At > TimeSpan.FromHours(1)).Select(x => x.Key).ToList())
+                    _cache.Remove(k);
+            _cache[id] = (url, DateTime.UtcNow);
+        }
+    }
+
+    private bool _updateChecked, _updatedAfterFail;
+
+    /// <summary>yt-dlp 가 사흘 넘게 묵었으면 뒤에서 조용히 새 버전으로 (YouTube 가 막는 방식을 바꿔도 계속 재생되게)</summary>
+    private void MaybeUpdate()
+    {
+        if (_updateChecked) return;
+        _updateChecked = true;
+        try
+        {
+            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(YtDlpPath) < TimeSpan.FromDays(3)) return;
+        }
+        catch { return; }
+        _ = Task.Run(UpdateYtDlp);
+    }
+
+    private async Task UpdateYtDlp()
+    {
+        await _ytdlpGate.WaitAsync();
+        try
+        {
+            var psi = new ProcessStartInfo(YtDlpPath, "-U --no-warnings")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi);
+            if (p == null) return;
+            var output = await p.StandardOutput.ReadToEndAsync();
+            await p.WaitForExitAsync();
+            // 이미 최신이어도 다음 확인은 사흘 뒤
+            try { File.SetLastWriteTimeUtc(YtDlpPath, DateTime.UtcNow); } catch { }
+            Log.Info($"yt-dlp 업데이트 확인: {output.Trim().Split('\n').LastOrDefault()}");
+        }
+        catch (Exception e) { Log.Warn($"yt-dlp 업데이트 실패: {e.Message}"); }
+        finally { _ytdlpGate.Release(); }
     }
 
     /// <summary>
@@ -199,7 +253,11 @@ public sealed class StreamResolver
 
     private async Task EnsureYtDlp(CancellationToken ct)
     {
-        if (File.Exists(YtDlpPath)) return;
+        if (File.Exists(YtDlpPath))
+        {
+            MaybeUpdate();
+            return;
+        }
         await _ytdlpGate.WaitAsync(ct);
         try
         {
