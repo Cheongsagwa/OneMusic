@@ -134,6 +134,12 @@ public sealed record PageData(
 public sealed record SearchItem(string Title, string Subtitle, string? Thumb, string? BrowseId, string? PageType, Track? Track)
 {
     public bool Round => PageType is "MUSIC_PAGE_TYPE_ARTIST" or "MUSIC_PAGE_TYPE_USER_CHANNEL";
+    /// <summary>⋮ 메뉴 (YT 가 준 그대로)</summary>
+    public List<YtMenuItem>? Menu { get; init; }
+    /// <summary>맨 위 결과 카드의 버튼들 (재생 · 저장 · 셔플 · 믹스 · 구독 …) — 첫 버튼이 흰 알약</summary>
+    public List<YtMenuItem>? Buttons { get; init; }
+    /// <summary>재생 목록 · 앨범을 바로 틀 때의 playlistId</summary>
+    public string? PlaylistId { get; init; }
 }
 
 public sealed record SearchSection(string Title, List<SearchItem> Items);

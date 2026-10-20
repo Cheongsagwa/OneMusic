@@ -147,8 +147,10 @@ public static class TrackMenu
         x.Endpoint?.Contains("removeFromQueueEndpoint") == true || x.Text == "현재 재생목록에서 삭제";
 
     /// <summary>YT 아이콘 이름 → 우리 아이콘 (pear 처럼 같은 선 굵기 · 둥근 끝)</summary>
-    private static string IconOf(string? type, string text) => type switch
+    internal static string IconOf(string? type, string text) => type switch
     {
+        "PLAY_ARROW" => Icons.Play,
+        "SUBSCRIBE" or "NOTIFICATIONS" => Icons.Bell,
         "MIX" or "RADIO" => Icons.Radio,
         "QUEUE_PLAY_NEXT" => Icons.PlayNextIcon,
         "ADD_TO_REMOTE_QUEUE" or "QUEUE_MUSIC" => Icons.QueueAdd,
@@ -195,7 +197,26 @@ public static class TrackMenu
         "watchEndpoint", "watchPlaylistEndpoint", "queueAddEndpoint", "browseEndpoint", "shareEntityEndpoint",
         "addToPlaylistEndpoint", "feedbackEndpoint", "likeEndpoint", "playlistEditEndpoint", "removeFromQueueEndpoint",
         "dismissQueueCommand", "offlineVideoEndpoint", "getReportFormEndpoint", "flagEndpoint", "urlEndpoint",
+        "subscribeEndpoint", "unsubscribeEndpoint",
     ];
+
+    /// <summary>
+    /// 끝이 있는 목록(앨범 · 플레이리스트, 셔플 포함)은 YT Music 처럼 그 목록 + 자동재생 토글,
+    /// RD… 로 시작하는 믹스 · 라디오만 끝없는 라디오(칩)로
+    /// </summary>
+    private static async Task PlayPlaylist(string? videoId, string playlistId, string? @params, string? title)
+    {
+        var p = PlayerService.Instance;
+        if (playlistId.StartsWith("RD"))
+        {
+            await p.PlayRadio(videoId, playlistId, @params, title);
+            return;
+        }
+        var q = await InnerTube.Instance.GetQueue(videoId, playlistId, @params);
+        if (q.Tracks.Count == 0) return;
+        var start = videoId == null ? 0 : Math.Max(0, q.Tracks.FindIndex(x => x.VideoId == videoId));
+        await p.PlayList(q.Tracks, start, q.Title ?? title, q.RelatedBrowseId, q.AutomixPlaylistId, q.AutomixParams);
+    }
 
     private static async Task<bool> RunNode(JsonNode? ep, string text, Ctx ctx)
     {
@@ -217,14 +238,23 @@ public static class TrackMenu
                 var vid = node.P("videoId").Str();
                 var pl = node.P("playlistId").Str();
                 var prm = node.P("params").Str();
-                if (pl != null) await p.PlayRadio(vid, pl, prm, ctx.Card?.Title ?? ctx.Track?.Title);
+                if (pl != null) await PlayPlaylist(vid, pl, prm, ctx.Card?.Title ?? ctx.Track?.Title);
                 else if (ctx.Track is { } t && vid == t.VideoId) await p.PlaySong(t);
                 else if (vid != null) await p.PlaySong(new Track(vid, ctx.Card?.Title ?? "", "", null, ctx.Card?.Thumb, 0));
                 return true;
             }
             case "watchPlaylistEndpoint":
-                await p.PlayRadio(null, node.P("playlistId").Str(), node.P("params").Str(), ctx.Card?.Title);
+                if (node.P("playlistId").Str() is not { } wpl) return false;
+                await PlayPlaylist(null, wpl, node.P("params").Str(), ctx.Card?.Title);
                 return true;
+            case "subscribeEndpoint":
+            case "unsubscribeEndpoint":
+            {
+                var on = key == "subscribeEndpoint";
+                var ok = node.P("channelIds", 0).Str() is { } ch && await api.Subscribe(ch, on);
+                Toast.Show(!ok ? "로그인이 필요해요" : on ? "구독했어요" : "구독을 취소했어요");
+                return ok;
+            }
             case "queueAddEndpoint":
             {
                 var target = node.P("queueTarget");

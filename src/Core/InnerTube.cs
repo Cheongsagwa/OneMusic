@@ -149,7 +149,11 @@ public sealed class InnerTube
                 track = new Track(videoId, card.P("title").Text(), segs.FirstOrDefault() ?? "", null, thumb, Fmt.ParseTime(time), ArtistOf(sub), AlbumOf(sub));
             }
             top = new SearchItem(card.P("title").Text(), subText, thumb,
-                nav.P("browseEndpoint", "browseId").Str(), PageTypeOf(nav.P("browseEndpoint")), track);
+                nav.P("browseEndpoint", "browseId").Str(), PageTypeOf(nav.P("browseEndpoint")), track)
+            {
+                Menu = ParseMenu(card.P("menu", "menuRenderer")),
+                Buttons = ParseButtons(card.P("buttons")),
+            };
             if (card.P("contents") is JsonArray cc)
                 topMore = cc.Select(x => x.P("musicResponsiveListItemRenderer")).OfType<JsonNode>().Select(ParseSearchItem).OfType<SearchItem>().ToList();
         }
@@ -175,7 +179,42 @@ public sealed class InnerTube
         var be = item.P("navigationEndpoint", "browseEndpoint");
         var track = be == null ? ParseResponsive(item) : null;
         if (track == null && be == null) return null;
-        return new SearchItem(title, sub, item.P("thumbnail").BestThumb(), be.P("browseId").Str(), PageTypeOf(be), track);
+        return new SearchItem(title, sub, item.P("thumbnail").BestThumb(), be.P("browseId").Str(), PageTypeOf(be), track)
+        {
+            Menu = ParseMenu(item.P("menu", "menuRenderer")),
+            PlaylistId = item.FindFirst("watchPlaylistEndpoint").P("playlistId").Str() ?? item.FindFirst("watchEndpoint").P("playlistId").Str(),
+        };
+    }
+
+    /// <summary>카드 버튼 (buttonRenderer · toggleButtonRenderer · subscribeButtonRenderer) — 글자 · 아이콘 · 동작 그대로</summary>
+    private static List<YtMenuItem>? ParseButtons(JsonNode? buttons)
+    {
+        if (buttons is not JsonArray arr) return null;
+        var list = new List<YtMenuItem>();
+        foreach (var b in arr)
+        {
+            if (b.P("buttonRenderer") is { } br)
+            {
+                var ep = br.P("command") ?? br.P("navigationEndpoint") ?? br.P("serviceEndpoint");
+                var text = br.P("text").Text();
+                if (text.Length == 0) text = br.P("accessibility", "label").Str() ?? "";
+                list.Add(new YtMenuItem(text, br.P("icon", "iconType").Str(), ep?.ToJsonString()));
+            }
+            else if (b.P("toggleButtonRenderer") is { } tg && ParseToggle(tg) is { } t) list.Add(t);
+            else if (b.P("subscribeButtonRenderer") is { } sub && sub.P("channelId").Str() is { } ch)
+            {
+                var on = sub.P("subscribed")?.GetValue<bool>() == true;
+                list.Add(new YtMenuItem("구독", "SUBSCRIBE", new JsonObject { ["subscribeEndpoint"] = new JsonObject { ["channelIds"] = new JsonArray(ch) } }.ToJsonString())
+                {
+                    Toggle = true,
+                    Toggled = on,
+                    ToggledText = "구독중",
+                    ToggledEndpoint = new JsonObject { ["unsubscribeEndpoint"] = new JsonObject { ["channelIds"] = new JsonArray(ch) } }.ToJsonString(),
+                });
+            }
+        }
+        list.RemoveAll(x => x.Text.Length == 0);
+        return list.Count > 0 ? list : null;
     }
 
     // ───────────────────────── 가사 (YT Music) ─────────────────────────

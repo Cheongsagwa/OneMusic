@@ -737,14 +737,30 @@ public sealed class SearchView : ScrollPage
         if (it.BrowseId != null) App.MainWin?.OpenBrowse(it.BrowseId);
     }
 
-    /// <summary>맨 위 결과 — 유리 카드, 100px 아트, 큰 제목, 재생(흰 알약) · 저장(테두리 알약)</summary>
+    /// <summary>검색 결과 → 메뉴 · 동작에 쓰는 카드</summary>
+    private static Card CardOf(SearchItem it) =>
+        new(it.Title, it.Subtitle, it.Thumb, false, it.Track?.VideoId, it.PlaylistId, it.BrowseId, it.PageType) { Menu = it.Menu };
+
+    /// <summary>⋮ · 우클릭 메뉴 — 곡이면 곡 메뉴, 아니면 YT 가 준 카드 메뉴</summary>
+    private static void ShowMenu(FrameworkElement at, SearchItem it, Point? pos)
+    {
+        if (it.Track is { } t) TrackMenu.Show(at, t with { Menu = t.Menu ?? it.Menu }, null, pos);
+        else TrackMenu.ShowCard(at, CardOf(it), pos ?? at.TransformToVisual(null).TransformPoint(new Point(-220, 36)));
+    }
+
+    /// <summary>
+    /// 맨 위 결과 — 100px 아트, 큰 제목, YT 가 준 버튼 그대로 (곡: 재생 · 저장 / 앨범: 재생 · 셔플 · 저장 /
+    /// 아티스트: 셔플 · 믹스 · 구독 …), 첫 버튼은 흰 알약. 켜고 끄는 버튼(보관함 · 구독)은 누르면 글자가 바뀐다
+    /// </summary>
     private FrameworkElement TopCard(SearchItem it)
     {
-        var g = new Grid { Padding = new Thickness(20), ColumnSpacing = 16 };
+        var g = new Grid { Padding = new Thickness(20), ColumnSpacing = 16, RowSpacing = 16 };
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var art = new Border { Width = 100, Height = 100, CornerRadius = new CornerRadius(it.Round ? 50 : 6), Background = Theme.B(Theme.Chip) };
+        g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var art = new Border { Width = 100, Height = 100, CornerRadius = new CornerRadius(it.Round ? 50 : 10), Background = Theme.B(Theme.Chip) };
         var img = new Image { Width = 100, Height = 100, Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 178) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
@@ -755,45 +771,101 @@ public sealed class SearchView : ScrollPage
         text.Children.Add(Theme.Text(it.Subtitle, 15, FontWeights.Normal, Theme.Secondary));
         Grid.SetColumn(text, 1);
         g.Children.Add(text);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
-        buttons.Children.Add(Pill(it.Track != null ? "재생" : "열기", true, Icons.Play, () => Open(it, new())));
-        var save = Pill("저장", false, null, () => { });
-        Tip.Set(save, "재생목록에 저장은 준비 중이에요");
-        buttons.Children.Add(save);
-        Grid.SetColumn(buttons, 2);
+        var more = new IconButton(40) { Content = Theme.Icon(Icons.More, 22, Colors.White), VerticalAlignment = VerticalAlignment.Top };
+        Tip.Set(more, "작업 메뉴");
+        more.Click += () => ShowMenu(more, it, null);
+        Grid.SetColumn(more, 2);
+        g.Children.Add(more);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        var card = CardOf(it);
+        if (it.Buttons is { Count: > 0 } list)
+        {
+            for (var i = 0; i < list.Count && i < 4; i++) buttons.Children.Add(YtButton(list[i], i == 0, it, card));
+        }
+        else
+        {
+            buttons.Children.Add(Pill(it.Track != null ? "재생" : "열기", true, Icons.Play, out _, _ => Open(it, new())));
+            if (it.Track is { } t)
+                buttons.Children.Add(Pill("저장", false, Icons.PlaylistAddPath, out _, at => _ = TrackMenu.RunEndpoint(
+                    new JsonObject { ["addToPlaylistEndpoint"] = new JsonObject { ["videoId"] = t.VideoId } }.ToJsonString(), "저장", at, card)));
+        }
+        Grid.SetRow(buttons, 1);
+        Grid.SetColumnSpan(buttons, 3);
         g.Children.Add(buttons);
-        var card = new Border
+        var box = new Border
         {
             CornerRadius = new CornerRadius(Theme.RadiusCard),
             Background = Theme.B(Color.FromArgb(26, 255, 255, 255)),
             Child = g,
             Margin = new Thickness(0, 0, 0, 24),
         };
-        card.Tapped += (_, _) => Open(it, new());
-        return card;
+        box.Tapped += (_, _) => Open(it, new());
+        box.RightTapped += (_, e) => { e.Handled = true; ShowMenu(box, it, e.GetPosition(null)); };
+        return box;
     }
 
-    private static FrameworkElement Pill(string text, bool primary, string? icon, Action click)
+    /// <summary>YT 카드 버튼 하나 — 누르면 YT 가 준 동작 그대로. 곡 재생은 '검색에서 튼 곡'(자동재생 토글)으로</summary>
+    private static FrameworkElement YtButton(YtMenuItem b, bool primary, SearchItem it, Card card)
+    {
+        var toggled = b.Toggle && b.Toggled;
+        string TextOf() => toggled && !string.IsNullOrEmpty(b.ToggledText) ? b.ToggledText! : b.Text;
+        string IconOf() => TrackMenu.IconOf(toggled ? b.ToggledIcon ?? b.Icon : b.Icon, TextOf());
+        Action<string, string>? set = null;
+        var pill = Pill(TextOf(), primary, IconOf(), out set, async at =>
+        {
+            var ep = toggled ? b.ToggledEndpoint ?? b.Endpoint : b.Endpoint;
+            if (it.Track is { } t && ep != null && ep.Contains("\"watchEndpoint\"") && !ep.Contains("playlistId"))
+            {
+                _ = PlayerService.Instance.PlaySong(t, fromSearch: true);
+                return;
+            }
+            var ok = await TrackMenu.RunEndpoint(ep, TextOf(), at, card);
+            if (!ok)
+            {
+                if (ep == null) Toast.Show("이 버튼은 지원하지 않아요");
+                return;
+            }
+            if (!b.Toggle) return;
+            toggled = !toggled;
+            set?.Invoke(TextOf(), IconOf());
+        });
+        return pill;
+    }
+
+    private static FrameworkElement Pill(string text, bool primary, string icon, out Action<string, string> set, Action<FrameworkElement> click)
     {
         var fg = primary ? Colors.Black : Colors.White;
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-        if (icon != null) row.Children.Add(Theme.Icon(icon, 18, fg));
-        else row.Children.Add(Theme.Icon(20, fg, Icons.PlaylistAdd));
         var label = Theme.Text(text, 14, FontWeights.SemiBold, fg);
         label.VerticalAlignment = VerticalAlignment.Center;
+        FrameworkElement MakeIcon(string i) => i == Icons.Play ? Theme.Icon(i, 18, fg) : Theme.Icon(i, 18, fg, stroke: true, strokeWidth: 1.8);
+        row.Children.Add(MakeIcon(icon));
         row.Children.Add(label);
         var b = new Border
         {
-            Width = 132,
+            MinWidth = 112,
             Height = 36,
+            Padding = new Thickness(18, 0, 20, 0),
             CornerRadius = new CornerRadius(18),
             Background = primary ? Theme.B(Colors.White) : new SolidColorBrush(Colors.Transparent),
             BorderBrush = primary ? null : Theme.B(Color.FromArgb(70, 255, 255, 255)),
             BorderThickness = new Thickness(primary ? 0 : 1),
             Child = row,
         };
+        if (!primary)
+        {
+            b.PointerEntered += (_, _) => b.Background = Theme.B(Theme.ChipHover);
+            b.PointerExited += (_, _) => b.Background = new SolidColorBrush(Colors.Transparent);
+        }
+        set = (t, i) =>
+        {
+            label.Text = t;
+            row.Children[0] = MakeIcon(i);
+            Anim.Pop(row, 0, new Vector2(0.5f, 0.5f));
+        };
         Anim.Pressable(b);
-        b.Tapped += (_, e) => { e.Handled = true; click(); };
+        b.Tapped += (_, e) => { e.Handled = true; click(b); };
         return b;
     }
 
@@ -818,16 +890,48 @@ public sealed class SearchView : ScrollPage
         text.Children.Add(Theme.Text(it.Subtitle, 14, FontWeights.Normal, Theme.Secondary));
         Grid.SetColumn(text, 1);
         inner.Children.Add(text);
+        inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        // 마우스를 올리면 오른쪽에 ⋮ (YT Music 검색 결과 줄)
+        var more = new IconButton(40) { Content = Theme.Icon(Icons.More, 22, Colors.White), VerticalAlignment = VerticalAlignment.Center };
+        Tip.Set(more, "작업 메뉴");
+        more.Click += () => ShowMenu(more, it, null);
+        Anim.V(more).Opacity = 0;
+        more.IsHitTestVisible = false;
+        Grid.SetColumn(more, 2);
+        inner.Children.Add(more);
+        // 곡이면 아트 위에 재생 덮개
+        Border? overlay = null;
+        if (it.Track != null)
+        {
+            overlay = new Border { CornerRadius = art.CornerRadius, Background = Theme.B(Color.FromArgb(97, 0, 0, 0)), Child = Theme.Icon(Icons.Play, 22, Colors.White), IsHitTestVisible = false };
+            Anim.V(overlay).Opacity = 0;
+            var artGrid = new Grid();
+            art.Child = null;
+            artGrid.Children.Add(img);
+            artGrid.Children.Add(overlay);
+            art.Child = artGrid;
+        }
         g.Children.Add(inner);
-        g.PointerEntered += (_, _) => Anim.Opacity(hover, 1, 160);
-        g.PointerExited += (_, _) => Anim.Opacity(hover, 0, 240);
+        g.PointerEntered += (_, _) =>
+        {
+            Anim.Opacity(hover, 1, 160);
+            Anim.Opacity(more, 1, 160);
+            more.IsHitTestVisible = true;
+            if (overlay != null) Anim.Opacity(overlay, 1, 160);
+        };
+        g.PointerExited += (_, _) =>
+        {
+            Anim.Opacity(hover, 0, 240);
+            Anim.Opacity(more, 0, 200);
+            more.IsHitTestVisible = false;
+            if (overlay != null) Anim.Opacity(overlay, 0, 200);
+        };
         Anim.Pressable(art);
         g.Tapped += (_, _) => Open(it, siblings);
         g.RightTapped += (_, e) =>
         {
             e.Handled = true;
-            if (it.Track is { } t) TrackMenu.Show(g, t, null, e.GetPosition(null));
-            else if (it.BrowseId != null) TrackMenu.ShowCard(g, new Card(it.Title, it.Subtitle, it.Thumb, false, null, null, it.BrowseId, it.PageType), e.GetPosition(null));
+            ShowMenu(g, it, e.GetPosition(null));
         };
         return g;
     }
