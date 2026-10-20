@@ -310,6 +310,13 @@ public sealed class DetailView : ScrollPage
         }
         // 보관함에 저장 (+ ↔ ✓) — YT 머리 버튼 그대로
         if (page.LibraryToggle is { } lib) buttons.Children.Add(LibraryButton(page, lib));
+        // 모두 좋아요 · 싫어요 (pear album-actions)
+        if (page.Tracks.Count > 1)
+        {
+            FrameworkElement? rateBtn = null;
+            rateBtn = Circle(40, false, Icons.ThumbUp, true, "모두 좋아요 · 싫어요", () => RateAllMenu(rateBtn!, page));
+            buttons.Children.Add(rateBtn);
+        }
         if (page.Tracks.Count > 1) buttons.Children.Add(Circle(40, false, Icons.Shuffle, true, "셔플", () => PlayAll(true)));
         if (page.Tracks.Count > 0) buttons.Children.Add(Circle(64, true, Icons.Play, false, "재생", () => PlayAll(false)));
         buttons.Children.Add(Circle(40, false, Icons.Share, true, "공유 (링크 복사)", () => CopyLink(page)));
@@ -361,6 +368,33 @@ public sealed class DetailView : ScrollPage
             g.Children.Add(card);
         }
         return g;
+    }
+
+    /// <summary>pear album-actions — 이 목록의 곡 전부에 좋아요 · 싫어요를 누르거나 취소한다</summary>
+    private static void RateAllMenu(FrameworkElement at, PageData page)
+    {
+        var m = new OneMenu(width: 280);
+        m.Header($"곡 {page.Tracks.Count}개 모두");
+        m.Item("모두 좋아요", Icons.ThumbUp, () => RateAll(page, true, "좋아요"));
+        m.Item("모두 좋아요 취소", Icons.ThumbUp, () => RateAll(page, null, "좋아요 취소"));
+        m.Item("모두 싫어요", Icons.ThumbDown, () => RateAll(page, false, "싫어요"));
+        m.Item("모두 싫어요 취소", Icons.ThumbDown, () => RateAll(page, null, "싫어요 취소"));
+        m.Show(at);
+    }
+
+    private static async void RateAll(PageData page, bool? like, string what)
+    {
+        if (!Auth.IsLoggedIn) { Toast.Show("로그인이 필요해요"); return; }
+        var list = page.Tracks.ToList();
+        Toast.Show($"{list.Count}곡 {what} 중…");
+        var ok = 0;
+        foreach (var t in list)
+        {
+            try { if (await InnerTube.Instance.Rate(t.VideoId, like)) ok++; }
+            catch (Exception e) { Log.Warn($"모두 {what} 실패: {t.Title} {e.Message}"); }
+            await Task.Delay(120); // 너무 빨리 보내면 YT 가 막는다
+        }
+        Toast.Show(ok == list.Count ? $"{ok}곡 모두 {what} 했어요" : $"{ok}/{list.Count}곡 {what} 했어요");
     }
 
     /// <summary>이 화면을 카드처럼 (⋮ 메뉴 · 공유 · 재생에 쓴다)</summary>

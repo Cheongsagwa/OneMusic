@@ -17,6 +17,10 @@ public sealed class Settings
     public bool ResumeSession { get; set; } = true;
     /// <summary>사이드바(≡)를 펼쳐 둘지</summary>
     public bool GuideOpen { get; set; }
+    /// <summary>최근 검색어 (YT 기록을 못 받을 때 쓰는 이 PC 의 기록, 최근 것이 앞)</summary>
+    public List<string> RecentSearches { get; set; } = new();
+    /// <summary>소리를 낼 장치 (null = 윈도우 기본 장치)</summary>
+    public string? AudioDevice { get; set; }
     public int WindowWidth { get; set; } = 1440;
     public int WindowHeight { get; set; } = 920;
 

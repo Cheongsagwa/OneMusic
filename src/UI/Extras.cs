@@ -146,6 +146,46 @@ public static class Shortcuts
     }
 }
 
+/// <summary>출력 장치 고르기 (pear custom-output-device) — 스피커 · 헤드폰 · 블루투스 …</summary>
+public static class OutputMenu
+{
+    public static string Label => PlayerService.Instance.OutputName ?? "기본 장치";
+
+    public static async void Show(FrameworkElement at)
+    {
+        var p = PlayerService.Instance;
+        List<Windows.Devices.Enumeration.DeviceInformation> devices;
+        try
+        {
+            var found = await Windows.Devices.Enumeration.DeviceInformation.FindAllAsync(Windows.Media.Devices.MediaDevice.GetAudioRenderSelector());
+            devices = found.Where(d => d.IsEnabled).ToList();
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"출력 장치 목록 실패: {e.Message}");
+            devices = new();
+        }
+        var current = Settings.Current.AudioDevice;
+        var m = new OneMenu(width: 320);
+        m.Header("출력 장치");
+        m.Item(current == null ? "기본 장치 (윈도우 설정)  ✓" : "기본 장치 (윈도우 설정)", Icons.Speaker, async () =>
+        {
+            await p.SetOutput(null);
+            Toast.Show("윈도우 기본 장치로 소리를 내요");
+        });
+        foreach (var d in devices)
+        {
+            var dev = d;
+            m.Item(dev.Id == current ? $"{dev.Name}  ✓" : dev.Name, Icons.Speaker, async () =>
+            {
+                await p.SetOutput(dev.Id);
+                Toast.Show($"'{dev.Name}'(으)로 소리를 내요");
+            });
+        }
+        m.Show(at);
+    }
+}
+
 /// <summary>재생 속도 (pear playback-speed) — 0.5 ~ 2배</summary>
 public static class SpeedMenu
 {
@@ -283,6 +323,7 @@ public static class AccountMenu
         var m = new OneMenu(width: 300);
         m.Item("미니 플레이어", Icons.Pip, () => w.ToggleMini());
         m.Item($"재생 속도 · {SpeedMenu.Label(PlayerService.Instance.Speed)}", Icons.Speed, () => SpeedMenu.Show(at), keepOpen: true);
+        m.Item($"출력 장치 · {OutputMenu.Label}", Icons.Speaker, () => OutputMenu.Show(at), keepOpen: true);
         m.Item($"취침 타이머 · {SleepTimer.Label}", Icons.Moon, () => SleepTimer.ShowMenu(at), keepOpen: true);
         m.Item($"곡 바뀜 알림 · {(s.Notifications ? "켜짐" : "꺼짐")}", Icons.Bell, () =>
         {

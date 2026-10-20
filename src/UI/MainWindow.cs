@@ -193,6 +193,7 @@ public sealed class MainWindow : Window
         Toast.Attach(Root);
         _drop = new SearchDropdown(Root);
         _drop.Chosen += Suggest;
+        _drop.Remove = RemoveHistory;
         Tip.Attach(Root);
         OneMenu.Attach(Root);
         OneDialog.Attach(Root);
@@ -202,6 +203,8 @@ public sealed class MainWindow : Window
         {
             Home.LoadOnce();
             if (Settings.Current.GuideOpen) ToggleGuide();
+            // 지난번에 고른 출력 장치
+            if (Settings.Current.AudioDevice is { } dev) _ = Player.SetOutput(dev);
             // 이어 듣기: 지난번 목록 · 위치 (멈춘 채로)
             if (Settings.Current.ResumeSession && SessionState.Load() is { } session) Player.Restore(session);
             if (Player.Current == null) ShowBar(false);
@@ -291,7 +294,8 @@ public sealed class MainWindow : Window
             await Task.Delay(180);
             if (_drop is { PointerInside: false }) _drop.Hide();
         };
-        _search.GotFocus += (_, _) => { if (_search.Text.Trim().Length > 0) OnSearchText(_search, null); };
+        // 눌렀을 때 비어 있으면 최근 검색어 (YT Music 검색창)
+        _search.GotFocus += (_, _) => OnSearchText(_search, null);
         pill.Children.Add(_search);
         _searchPill = pill;
         return pill;
@@ -492,6 +496,11 @@ public sealed class MainWindow : Window
     public void ShowSearch(string q)
     {
         _drop?.Hide();
+        var recent = Settings.Current.RecentSearches;
+        recent.Remove(q);
+        recent.Insert(0, q);
+        if (recent.Count > 20) recent.RemoveRange(20, recent.Count - 20);
+        Settings.Current.Save();
         ClosePlayer();
         ClearDetails();
         _search.Text = q;
@@ -630,22 +639,36 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>최근 검색어 ✕ — YT 기록이면 YT 에서, 이 PC 기록이면 여기서 지운다</summary>
+    private async Task<bool> RemoveHistory(Suggestion s)
+    {
+        Settings.Current.RecentSearches.Remove(s.Text);
+        Settings.Current.Save();
+        if (s.RemoveToken is null or "local" or "") return true;
+        try { return await InnerTube.Instance.Feedback(s.RemoveToken); }
+        catch (Exception e)
+        {
+            Log.Warn($"검색 기록 지우기 실패: {e.Message}");
+            Toast.Show("지우지 못했어요");
+            return false;
+        }
+    }
+
     private async void OnSearchText(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs? e)
     {
         if (e != null && e.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
         _suggestCts?.Cancel();
         var q = sender.Text.Trim();
-        if (q.Length == 0)
-        {
-            _drop?.Hide();
-            return;
-        }
         var cts = _suggestCts = new CancellationTokenSource();
         try
         {
-            await Task.Delay(180, cts.Token);
-            var (words, items) = await InnerTube.Instance.SuggestionsFull(q, cts.Token);
+            await Task.Delay(q.Length == 0 ? 0 : 180, cts.Token);
+            var (words, items) = Auth.IsLoggedIn ? await InnerTube.Instance.SuggestionsFull(q, cts.Token) : (new List<Suggestion>(), new List<SearchItem>());
             if (cts.IsCancellationRequested || _searchPill == null || _drop == null) return;
+            // 비어 있는데 YT 기록이 없으면 이 PC 의 최근 검색어
+            if (q.Length == 0 && words.Count == 0)
+                words = Settings.Current.RecentSearches.Take(10).Select(t => new Suggestion(t, "local")).ToList();
+            if (q.Length == 0 && words.Count == 0) { _drop.Hide(); return; }
             if (_search.FocusState == FocusState.Unfocused && !_drop.PointerInside) return;
             _drop.Show(_searchPill, words, items);
         }

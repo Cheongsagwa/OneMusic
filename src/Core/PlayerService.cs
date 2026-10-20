@@ -99,6 +99,47 @@ public sealed class PlayerService
     }
     public bool Loading { get; private set; }
 
+    /// <summary>지금 고른 출력 장치 이름 (null = 윈도우 기본 장치)</summary>
+    public string? OutputName { get; private set; }
+
+    /// <summary>
+    /// 소리를 낼 장치 (pear custom-output-device) — null 이면 윈도우 기본 장치를 따라간다. 고른 것은 다음에 켤 때도
+    /// </summary>
+    public async Task SetOutput(string? deviceId)
+    {
+        try
+        {
+            if (deviceId == null)
+            {
+                try { _mp.AudioDevice = null; }
+                catch
+                {
+                    var def = Windows.Media.Devices.MediaDevice.GetDefaultAudioRenderId(Windows.Media.Devices.AudioDeviceRole.Default);
+                    if (def != null) _mp.AudioDevice = await Windows.Devices.Enumeration.DeviceInformation.CreateFromIdAsync(def);
+                }
+                OutputName = null;
+            }
+            else
+            {
+                var dev = await Windows.Devices.Enumeration.DeviceInformation.CreateFromIdAsync(deviceId);
+                _mp.AudioDevice = dev;
+                OutputName = dev.Name;
+            }
+            Settings.Current.AudioDevice = deviceId;
+            Settings.Current.Save();
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"출력 장치 바꾸기 실패: {e.Message}");
+            // 장치가 빠졌으면 기본 장치로
+            if (deviceId != null && Settings.Current.AudioDevice == deviceId)
+            {
+                Settings.Current.AudioDevice = null;
+                Settings.Current.Save();
+            }
+        }
+    }
+
     /// <summary>재생 속도 (pear playback-speed) — 곡이 바뀌어도 그대로</summary>
     public double Speed
     {

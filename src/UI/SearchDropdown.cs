@@ -17,6 +17,8 @@ public sealed class SearchDropdown
     public bool IsOpen => _layer.Visibility == Visibility.Visible;
     public bool PointerInside { get; private set; }
     public event Action<object>? Chosen;
+    /// <summary>최근 검색어 ✕ — 지웠으면 true 를 돌려주면 그 줄이 접히며 사라진다</summary>
+    public Func<Suggestion, Task<bool>>? Remove;
 
     public SearchDropdown(Grid root)
     {
@@ -40,14 +42,14 @@ public sealed class SearchDropdown
     }
 
     /// <summary>검색창(anchor) 바로 밑에 띄운다</summary>
-    public void Show(FrameworkElement anchor, IReadOnlyList<string> words, IReadOnlyList<SearchItem> items)
+    public void Show(FrameworkElement anchor, IReadOnlyList<Suggestion> words, IReadOnlyList<SearchItem> items)
     {
         _list.Children.Clear();
         _rows.Clear();
         _sel = -1;
         if (words.Count == 0 && items.Count == 0) { Hide(); return; }
         var delay = 0;
-        foreach (var w in words) AddRow(Row(w, null), w, ref delay);
+        foreach (var w in words) AddRow(WordRow(w), w.Text, ref delay);
         if (words.Count > 0 && items.Count > 0)
             _list.Children.Add(new XRect { Height = 1, Fill = Theme.B(Theme.Divider), Margin = new Thickness(12, 6, 12, 6) });
         foreach (var it in items) AddRow(Row(it.Title, it), it, ref delay);
@@ -94,7 +96,34 @@ public sealed class SearchDropdown
             _rows[i].Row.Background = i == idx ? Theme.B(Color.FromArgb(15, 255, 255, 255)) : new SolidColorBrush(Colors.Transparent);
     }
 
-    private static Grid Row(string text, SearchItem? item)
+    /// <summary>검색어 줄 — 최근 검색어는 시계 아이콘 + 오른쪽 ✕ (YT Music 검색창)</summary>
+    private Grid WordRow(Suggestion w)
+    {
+        var g = Row(w.Text, null, w.History);
+        if (!w.History) return g;
+        var x = new IconButton(32)
+        {
+            Content = Theme.Icon("M7 7l10 10M17 7 7 17", 16, Theme.Secondary, stroke: true, strokeWidth: 2),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, -4, 0),
+        };
+        Tip.Set(x, "검색 기록에서 삭제");
+        x.Click += async () =>
+        {
+            if (Remove == null || !await Remove(w)) return;
+            var i = _rows.FindIndex(r => r.Row == g);
+            if (i >= 0) _rows.RemoveAt(i);
+            Anim.Opacity(g, 0, Anim.Fast);
+            await Task.Delay(Anim.Fast);
+            _list.Children.Remove(g);
+            if (_rows.Count == 0) Hide();
+        };
+        g.Children.Add(x);
+        return g;
+    }
+
+    private static Grid Row(string text, SearchItem? item, bool history = false)
     {
         var g = new Grid
         {
@@ -106,7 +135,7 @@ public sealed class SearchDropdown
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center };
         if (item == null)
         {
-            var icon = Theme.Icon(18, Theme.Secondary, Icons.SearchSesl);
+            var icon = history ? Theme.Icon(Icons.History, 18, Theme.Secondary, stroke: true, strokeWidth: 1.8) : Theme.Icon(18, Theme.Secondary, Icons.SearchSesl);
             icon.VerticalAlignment = VerticalAlignment.Center;
             row.Children.Add(icon);
             var t = Theme.Text(text, 15, FontWeights.SemiBold, Theme.OnSurface);

@@ -148,6 +148,12 @@ public sealed record SearchItem(string Title, string Subtitle, string? Thumb, st
 
 public sealed record SearchSection(string Title, List<SearchItem> Items);
 
+/// <summary>검색창 추천어 — RemoveToken 이 있으면 '최근 검색어'(시계 아이콘 · ✕ 로 지우기). "local" 은 이 PC 에만 남긴 기록</summary>
+public sealed record Suggestion(string Text, string? RemoveToken = null)
+{
+    public bool History => RemoveToken != null;
+}
+
 /// <summary>검색 결과 — 맨 위 결과 카드 + 갈래별 목록 + 필터 칩 (노래 · 동영상 · 아티스트 …) + 고친 검색어</summary>
 public sealed record SearchData(SearchItem? Top, List<SearchItem> TopMore, List<SearchSection> Sections, List<Chip> Chips, string? Corrected);
 

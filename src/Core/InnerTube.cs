@@ -469,14 +469,16 @@ public sealed class InnerTube
     }
 
     /// <summary>검색어 추천 + 바로 갈 수 있는 결과(곡 · 동영상 · 아티스트 · 앨범) — pear 검색창 드롭다운처럼</summary>
-    public async Task<(List<string> Words, List<SearchItem> Items)> SuggestionsFull(string input, CancellationToken ct = default)
+    public async Task<(List<Suggestion> Words, List<SearchItem> Items)> SuggestionsFull(string input, CancellationToken ct = default)
     {
         var json = await Post("music/get_search_suggestions", new JsonObject { ["input"] = input }, ct);
-        var words = json.FindAll("searchSuggestionRenderer")
-            .Select(s => s.P("suggestion").Text())
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct()
-            .Take(6)
+        // 최근 검색어(historySuggestionRenderer — ✕ 는 feedbackToken 으로 지운다)가 먼저, 그다음 추천어
+        var words = json.FindAll("historySuggestionRenderer")
+            .Select(s => new Suggestion(s.P("suggestion").Text(), s.FindFirst("feedbackToken").Str() ?? ""))
+            .Concat(json.FindAll("searchSuggestionRenderer").Select(s => new Suggestion(s.P("suggestion").Text())))
+            .Where(s => !string.IsNullOrWhiteSpace(s.Text))
+            .DistinctBy(s => s.Text)
+            .Take(input.Length == 0 ? 10 : 7)
             .ToList();
         var items = json.FindAll("musicResponsiveListItemRenderer").Select(ParseSearchItem).OfType<SearchItem>().Take(4).ToList();
         return (words, items);

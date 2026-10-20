@@ -138,3 +138,116 @@ public sealed class ArtView : Grid
         _top.StartAnimation("Opacity", fade);
     }
 }
+
+/// <summary>
+/// 앰비언트 모드 (pear ambient-mode) — 재생 화면 앨범아트 뒤로 아트가 크게 흐려진 빛이 번진다.
+/// 곡이 바뀌면 새 빛이 천천히(0.9초) 피어나고 옛 빛은 사라진다. 아트를 작게(96px) 받아 크게 흐려서 가볍다
+/// </summary>
+public sealed class AmbientGlow : Grid
+{
+    private static CompositionEffectFactory? _factory;
+    private SpriteVisual? _current;
+    private LoadedImageSurface? _currentSurface;
+    private ContainerVisual? _root;
+    private string? _url;
+    private int _gen;
+
+    public AmbientGlow()
+    {
+        IsHitTestVisible = false;
+        Loaded += (_, _) => { Init(); if (_url != null) Show(_url); };
+        SizeChanged += (_, _) => Resize();
+    }
+
+    private void Init()
+    {
+        if (_root != null) return;
+        var c = Anim.V(this).Compositor;
+        _root = c.CreateContainerVisual();
+        ElementCompositionPreview.SetElementChildVisual(this, _root);
+        Resize();
+    }
+
+    /// <summary>빛은 아트보다 사방으로 18% 더 크게</summary>
+    private void Resize()
+    {
+        if (_root == null) return;
+        var w = (float)ActualWidth;
+        var h = (float)ActualHeight;
+        _root.Size = new Vector2(w * 1.36f, h * 1.36f);
+        _root.Offset = new Vector3(-w * 0.18f, -h * 0.18f, 0);
+        foreach (var v in _root.Children.OfType<SpriteVisual>()) v.Size = _root.Size;
+    }
+
+    public void Show(string? url)
+    {
+        _url = url;
+        if (_root == null || !Anim.Enabled) return;
+        var gen = ++_gen;
+        var (u, fallback) = Theme.ImageUrl(url, 48);
+        if (u == null) { FadeOut(); return; }
+        Load(u, fallback, gen);
+    }
+
+    private void Load(string url, string? fallback, int gen)
+    {
+        LoadedImageSurface surface;
+        try { surface = LoadedImageSurface.StartLoadFromUri(new Uri(url), new Size(96, 96)); }
+        catch { return; }
+        surface.LoadCompleted += (s, e) =>
+        {
+            if (gen != _gen || _root == null) { s.Dispose(); return; }
+            if (e.Status != LoadedImageSourceLoadStatus.Success)
+            {
+                s.Dispose();
+                if (fallback != null) Load(fallback, null, gen);
+                return;
+            }
+            var c = _root.Compositor;
+            _factory ??= c.CreateEffectFactory(new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
+            {
+                BlurAmount = 60,
+                BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Soft,
+                Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Speed,
+                Source = new CompositionEffectSourceParameter("art"),
+            });
+            var art = c.CreateSurfaceBrush(s);
+            art.Stretch = CompositionStretch.UniformToFill;
+            var brush = _factory.CreateBrush();
+            brush.SetSourceParameter("art", art);
+            var sprite = c.CreateSpriteVisual();
+            sprite.Brush = brush;
+            sprite.Size = _root.Size;
+            sprite.Opacity = 0;
+            _root.Children.InsertAtTop(sprite);
+            var a = c.CreateScalarKeyFrameAnimation();
+            a.InsertKeyFrame(1f, 0.55f, Anim.Smooth(c));
+            a.Duration = TimeSpan.FromMilliseconds(900);
+            sprite.StartAnimation("Opacity", a);
+            FadeOut();
+            _current = sprite;
+            _currentSurface = s;
+        };
+    }
+
+    /// <summary>지금 빛을 서서히 끄고 치운다</summary>
+    private async void FadeOut()
+    {
+        var old = _current;
+        var oldSurface = _currentSurface;
+        _current = null;
+        _currentSurface = null;
+        if (old == null || _root == null) return;
+        var c = _root.Compositor;
+        var a = c.CreateScalarKeyFrameAnimation();
+        a.InsertKeyFrame(1f, 0f, Anim.Smooth(c));
+        a.Duration = TimeSpan.FromMilliseconds(900);
+        old.StartAnimation("Opacity", a);
+        await Task.Delay(950);
+        _root?.Children.Remove(old);
+        (old.Brush as CompositionEffectBrush)?.GetSourceParameter("art")?.Dispose();
+        old.Brush?.Dispose();
+        old.Dispose();
+        oldSurface?.Dispose();
+    }
+}

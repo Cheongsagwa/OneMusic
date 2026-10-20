@@ -76,6 +76,8 @@ public sealed class PlayerView : Grid
     private readonly ArtView _artView = new((float)Theme.RadiusCard, 670);
     private readonly MediaPlayerElement _videoView = new() { AreTransportControlsEnabled = false, Stretch = Stretch.Uniform, Background = Theme.B(Colors.Black) };
     private readonly Grid _artBox = new() { Width = 670, Height = 648 };
+    /// <summary>아트 뒤 번지는 빛 (pear ambient-mode)</summary>
+    private readonly AmbientGlow _glow = new();
     private readonly PillTabs _tabs = new("다음 트랙", "가사", "댓글", "관련 항목");
     private readonly StackPanel _queue = new();
     private readonly ScrollViewer _queueScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
@@ -119,6 +121,7 @@ public sealed class PlayerView : Grid
         artStack.Children.Add(_videoView);
         _art.Child = artStack;
         _p.VideoChanged += OnVideo;
+        _artBox.Children.Add(_glow);
         _artBox.Children.Add(_art);
         var artHolder = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, VerticalAlignment = VerticalAlignment.Center, Child = _artBox };
         _art.Shadow = new ThemeShadow();
@@ -268,6 +271,7 @@ public sealed class PlayerView : Grid
         var wide = _p.PlayingVideo || t?.Thumb?.Contains("ytimg.com") == true;
         _artBox.Height = wide ? 377 : 648;
         _artView.Show(t?.Thumb);
+        _glow.Show(t?.Thumb);
         for (var i = 0; i < _rows.Count; i++) _rows[i].SetCurrent(i == _p.Index);
         _relatedFor = null;
         if (_tabs.Selected == 3) LoadRelated();
