@@ -148,7 +148,7 @@ public sealed class PlayerView : Grid
         saveRow.Children.Add(saveText);
         save.Child = saveRow;
         ToolTipService.SetToolTip(save, "재생목록으로 저장은 준비 중이에요");
-        Anim.Pressable(save, 0.94f);
+        Anim.Pressable(save);
         head.Children.Add(save);
         _queueTab.Children.Add(head);
         var autoRow = _autoRow = new Grid { Height = 52, Margin = new Thickness(8, 0, 8, 4), Padding = new Thickness(8, 0, 2, 0), Background = new SolidColorBrush(Colors.Transparent) };
@@ -357,7 +357,7 @@ public sealed class PlayerView : Grid
             ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
             chip.PointerEntered += (_, _) => { if (!c.Selected) chip.Background = Theme.B(Theme.Selected); };
             chip.PointerExited += (_, _) => { if (!c.Selected) chip.Background = Theme.B(Theme.Chip); };
-            Anim.Pressable(chip, 0.94f);
+            Anim.Pressable(chip);
             chip.Tapped += (_, _) => { if (!c.Selected) _ = _p.SelectChip(idx); };
             row.Children.Add(chip);
         }

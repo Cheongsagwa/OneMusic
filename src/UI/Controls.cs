@@ -86,7 +86,7 @@ public sealed class NavRail : StackPanel
         box.Tapped += (_, _) => Select(idx);
         box.PointerEntered += (_, _) => { if (Selected != idx) box.Background = Theme.B(Color.FromArgb(15, 255, 255, 255)); };
         box.PointerExited += (_, _) => { if (Selected != idx) box.Background = new SolidColorBrush(Colors.Transparent); };
-        Anim.Pressable(box, 0.92f);
+        Anim.Pressable(box);
         _items.Add((box, iconHost, outline, filled));
         Children.Add(box);
     }

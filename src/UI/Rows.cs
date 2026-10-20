@@ -163,10 +163,13 @@ public sealed class CardView : StackPanel
     public Card Card { get; }
     public event Action<Card>? Click;
 
-    public CardView(Card c, double size = 164)
+    /// <param name="square">16:9 아트도 가운데를 잘라 정사각으로 (격자가 흐트러지지 않게)</param>
+    /// <param name="fixedHeight">제목 · 부제목 두 줄씩 자리를 늘 비워 둬서 아래 줄 카드 위치가 같게</param>
+    public CardView(Card c, double size = 164, bool square = false, bool fixedHeight = false)
     {
         Card = c;
-        var w = c.Wide ? size * 16 / 9 : size;
+        var w = c.Wide && !square ? size * 16 / 9 : size;
+        if (fixedHeight) Height = size + 92;
         Width = w;
         Spacing = 8;
         Background = new SolidColorBrush(Colors.Transparent);
@@ -188,7 +191,7 @@ public sealed class CardView : StackPanel
         PointerEntered += (_, _) => Anim.Scale(img, 1.05f, 0.8f, 60);
         PointerExited += (_, _) => Anim.Scale(img, 1f, 0.8f, 60);
         img.SizeChanged += (_, _) => Anim.V(img).CenterPoint = new Vector3((float)img.ActualWidth / 2, (float)img.ActualHeight / 2, 0);
-        Anim.Pressable(art, 0.96f);
+        Anim.Pressable(art);
         Tapped += (_, _) => Click?.Invoke(c);
     }
 }

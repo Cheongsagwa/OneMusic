@@ -301,7 +301,7 @@ public sealed class DetailView : ScrollPage
         };
         b.PointerEntered += (_, _) => b.Background = Theme.B(hover);
         b.PointerExited += (_, _) => b.Background = Theme.B(idle);
-        Anim.Pressable(b, 0.95f);
+        Anim.Pressable(b);
         b.Tapped += (_, _) => click();
         return b;
     }
@@ -328,7 +328,7 @@ public sealed class DetailView : ScrollPage
                 ((TextBlock)all.Child).VerticalAlignment = VerticalAlignment.Center;
                 all.PointerEntered += (_, _) => all.Background = Theme.B(Theme.ChipHover);
                 all.PointerExited += (_, _) => all.Background = Theme.B(Theme.Chip);
-                Anim.Pressable(all, 0.94f);
+                Anim.Pressable(all);
                 all.Tapped += (_, _) => App.MainWin?.OpenBrowse(more);
                 head.Children.Add(all);
             }

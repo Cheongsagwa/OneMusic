@@ -95,7 +95,7 @@ public sealed class FloatingBar : Grid
         artGrid.Children.Add(_artImg);
         _art.Child = artGrid;
         _art.Tapped += (_, _) => OpenPlayer?.Invoke();
-        Anim.Pressable(_art, 0.94f);
+        Anim.Pressable(_art);
         var info = new StackPanel { Width = 240, Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
         info.Children.Add(_title);
         info.Children.Add(_artist);

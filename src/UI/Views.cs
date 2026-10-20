@@ -166,7 +166,7 @@ public sealed class ShelvesView : ScrollPage
         card.Children.Add(Theme.Text("한국에서는 로그인해야 YouTube Music 을 쓸 수 있어요. 구글 계정으로 로그인하면 홈 추천 · 검색 · 재생이 열려요.", 15, FontWeights.Normal, Theme.Secondary, 3));
         var btn = new Border { CornerRadius = new CornerRadius(22), Background = Theme.B(Colors.White), Padding = new Thickness(24, 12, 24, 12), HorizontalAlignment = HorizontalAlignment.Left };
         btn.Child = Theme.Text("구글 계정으로 로그인", 15, FontWeights.Bold, Colors.Black);
-        Anim.Pressable(btn, 0.95f);
+        Anim.Pressable(btn);
         btn.Tapped += async (_, _) =>
         {
             var w = new LoginWindow();
@@ -257,7 +257,7 @@ public sealed class ShelvesView : ScrollPage
             ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
             chip.PointerEntered += (_, _) => { if (!selected) chip.Background = Theme.B(Theme.ChipHover); };
             chip.PointerExited += (_, _) => { if (!selected) chip.Background = Theme.B(Theme.Chip); };
-            Anim.Pressable(chip, 0.94f);
+            Anim.Pressable(chip);
             chip.Tapped += (_, _) =>
             {
                 _chipParams = selected ? null : c.Params;
@@ -306,7 +306,7 @@ public sealed class ShelvesView : ScrollPage
             var wrap = new WrapPanel { Margin = new Thickness(Left, 0, 40, 8), HSpacing = 16, VSpacing = 24 };
             foreach (var c in s.Items)
             {
-                var card = new CardView(c, 166);
+                var card = new CardView(c, 166, square: true, fixedHeight: true);
                 card.Click += cc => Play.Card(cc, s);
                 wrap.Children.Add(card);
             }
@@ -338,10 +338,10 @@ public sealed class ShelvesView : ScrollPage
             row.Spacing = 24;
             for (var i = 0; i < s.Items.Count; i += 2)
             {
-                var col = new StackPanel { Spacing = 20 };
+                var col = new StackPanel { Spacing = 16 };
                 foreach (var c in s.Items.Skip(i).Take(2))
                 {
-                    var card = new CardView(c, 164);
+                    var card = new CardView(c, 164, square: true, fixedHeight: true);
                     card.Click += cc => Play.Card(cc, s);
                     col.Children.Add(card);
                 }
@@ -410,7 +410,7 @@ public sealed class ShelvesView : ScrollPage
         text.Children.Add(Theme.Text(t.Artist, 14, FontWeights.Normal, Theme.Secondary));
         Grid.SetColumn(text, 1);
         g.Children.Add(text);
-        Anim.Pressable(art, 0.94f);
+        Anim.Pressable(art);
         g.Tapped += (_, _) => _ = PlayerService.Instance.PlaySong(t);
         return g;
     }
@@ -522,7 +522,7 @@ public sealed class SearchView : ScrollPage
             ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
             chip.PointerEntered += (_, _) => { if (!selected) chip.Background = Theme.B(Theme.Selected); };
             chip.PointerExited += (_, _) => { if (!selected) chip.Background = Theme.B(Theme.Chip); };
-            Anim.Pressable(chip, 0.94f);
+            Anim.Pressable(chip);
             chip.Tapped += (_, _) =>
             {
                 _filter = selected ? null : c.Params;
@@ -597,7 +597,7 @@ public sealed class SearchView : ScrollPage
             BorderThickness = new Thickness(primary ? 0 : 1),
             Child = row,
         };
-        Anim.Pressable(b, 0.95f);
+        Anim.Pressable(b);
         b.Tapped += (_, e) => { e.Handled = true; click(); };
         return b;
     }
@@ -626,7 +626,7 @@ public sealed class SearchView : ScrollPage
         g.Children.Add(inner);
         g.PointerEntered += (_, _) => Anim.Opacity(hover, 1, 160);
         g.PointerExited += (_, _) => Anim.Opacity(hover, 0, 240);
-        Anim.Pressable(art, 0.94f);
+        Anim.Pressable(art);
         g.Tapped += (_, _) => Open(it, siblings);
         return g;
     }
