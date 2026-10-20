@@ -130,7 +130,7 @@ public sealed record SearchData(SearchItem? Top, List<SearchItem> TopMore, List<
 public sealed record LyricLine(int TimeMs, string Text);
 
 /// <summary>가사 출처 — pear synced-lyrics 플러그인처럼 고를 수 있다 (기본 LRCLib, 없으면 YT Music)</summary>
-public enum LyricsSource { LRCLib, YTMusic, Musixmatch }
+public enum LyricsSource { LRCLib, YTMusic, Musixmatch, Genius }
 
 /// <summary>가사 + 시간 정보가 있는지 (YT Music 가사는 시간 없이 글자만)</summary>
 public sealed record LyricsResult(List<LyricLine> Lines, bool Synced);

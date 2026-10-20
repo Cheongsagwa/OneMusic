@@ -262,7 +262,7 @@ public sealed class LyricsView : Grid
 public sealed class LyricsSourceBar : Grid
 {
     private static readonly (LyricsSource Src, string Name)[] Sources =
-        [(LyricsSource.LRCLib, "LRCLib"), (LyricsSource.YTMusic, "YTMusic"), (LyricsSource.Musixmatch, "Musixmatch")];
+        [(LyricsSource.LRCLib, "LRCLib"), (LyricsSource.YTMusic, "YTMusic"), (LyricsSource.Musixmatch, "MusixMatch"), (LyricsSource.Genius, "Genius")];
     private readonly StackPanel _center = new() { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly StackPanel _dots = new() { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
 

@@ -194,6 +194,58 @@ public sealed class InnerTube
         return text.Length > 0 ? text : null;
     }
 
+    /// <summary>
+    /// pear synced-lyrics 의 YTMusic 출처: next 의 '가사' 탭 browseId 를 iOS 앱(clientName 26, 7.01.05) 으로 browse 하면
+    /// 시간 있는 가사(timedLyricsModel — 줄마다 시작 · 끝 ms)가 온다. 없으면 글자 가사(설명 칸 · 안내 문구)
+    /// </summary>
+    public async Task<(List<(int StartMs, int EndMs, string Text)>? Timed, string? Plain)> YtLyricsFull(string videoId, CancellationToken ct = default)
+    {
+        var next = await Post("next", new JsonObject { ["videoId"] = videoId, ["isAudioOnly"] = true }, ct);
+        string? id = null;
+        foreach (var tab in next.FindAll("tabRenderer"))
+            if (tab.P("endpoint", "browseEndpoint", "browseEndpointContextSupportedConfigs", "browseEndpointContextMusicConfig", "pageType").Str() == "MUSIC_PAGE_TYPE_TRACK_LYRICS")
+                id = tab.P("endpoint", "browseEndpoint", "browseId").Str();
+        if (id == null) return (null, null);
+
+        JsonNode? json = null;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}browse?prettyPrint=false")
+            {
+                Content = new StringContent(new JsonObject
+                {
+                    ["browseId"] = id,
+                    ["context"] = new JsonObject { ["client"] = new JsonObject { ["clientName"] = "26", ["clientVersion"] = "7.01.05", ["hl"] = "ko", ["gl"] = "KR" } },
+                }.ToJsonString(), Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Accept.ParseAdd("application/json");
+            using var res = await _lyricsHttp.SendAsync(req, ct);
+            if (res.IsSuccessStatusCode) json = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+            else Log.Warn($"YT 시간 가사 HTTP {(int)res.StatusCode}");
+        }
+        catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested) { Log.Warn($"YT 시간 가사 실패: {e.Message}"); }
+
+        if (json.FindFirst("timedLyricsData") is JsonArray timed && timed.Count > 0 && timed[0].P("cueRange") != null)
+            return (timed.Select(x => (
+                int.Parse(x.P("cueRange", "startTimeMilliseconds").Str() ?? "0"),
+                int.Parse(x.P("cueRange", "endTimeMilliseconds").Str() ?? "0"),
+                x.P("lyricLine").Str() ?? "")).ToList(), null);
+        if (json.FindFirst("timedLyricsData") is JsonArray onlyText && onlyText.Count > 0)
+            return (null, string.Join("\n", onlyText.Select(x => x.P("lyricLine").Str() ?? "")));
+        var plain = json.FindFirst("messageRenderer").P("text").Text();
+        if (plain.Length == 0) plain = json.FindFirst("musicDescriptionShelfRenderer").P("description").Text();
+        if (plain.Length == 0)
+        {
+            // 웹 클라이언트로 한 번 더 (글자 가사)
+            var web = await Post("browse", new JsonObject { ["browseId"] = id }, ct);
+            plain = web.FindFirst("musicDescriptionShelfRenderer").P("description").Text();
+        }
+        return (null, plain.Length > 0 ? plain : null);
+    }
+
+    /// <summary>시간 가사용 — 쿠키 없이 (iOS 앱 요청에 웹 로그인 쿠키를 붙이면 거절될 수 있다)</summary>
+    private readonly HttpClient _lyricsHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
+
     // ───────────────────────── 댓글 ─────────────────────────
 
     /// <summary>
