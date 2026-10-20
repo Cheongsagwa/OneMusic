@@ -104,11 +104,52 @@ public sealed class ShelvesView : ScrollPage
     private string? _chipBrowse;
     private readonly TextBlock _status = Theme.Text("불러오는 중…", 15, FontWeights.SemiBold, Theme.Secondary);
 
+    private string? _more;
+    private bool _loadingMore;
+    private Border? _bottom;
+    private int _gen;
+
     public ShelvesView(string browseId, bool withChips)
     {
         _browseId = browseId;
         _withChips = withChips;
         Body.Padding = new Thickness(0, 0, 0, 0);
+        // 끝 가까이 내리면 다음 셸프들을 이어서 (YT Music 홈은 몇 개씩 나눠 준다)
+        Scroller.ViewChanged += (_, _) =>
+        {
+            if (Scroller.VerticalOffset > Scroller.ScrollableHeight - 900) LoadMore();
+        };
+    }
+
+    private async void LoadMore()
+    {
+        if (_more == null || _loadingMore || _bottom == null) return;
+        _loadingMore = true;
+        var gen = _gen;
+        var token = _more;
+        try
+        {
+            var data = await InnerTube.Instance.HomeMore(token);
+            if (gen != _gen) return;
+            _more = data.Continuation;
+            var at = Body.Children.IndexOf(_bottom);
+            var delay = 0;
+            foreach (var s in data.Shelves)
+            {
+                var shelf = BuildShelf(s);
+                Body.Children.Insert(at++, shelf);
+                Anim.Appear(shelf, delay);
+                delay = Math.Min(delay + 60, 300);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"셸프 이어 받기 실패: {e.Message}");
+            _more = null;
+        }
+        finally { _loadingMore = false; }
+        // 화면이 아직 안 찼으면 한 번 더
+        if (gen == _gen && Scroller.ScrollableHeight < 900) LoadMore();
     }
 
     public void Reload()
@@ -140,6 +181,9 @@ public sealed class ShelvesView : ScrollPage
     {
         if (_loaded) return;
         _loaded = true;
+        _gen++;
+        _more = null;
+        _bottom = null;
         Body.Children.Clear();
         if (!Auth.IsLoggedIn)
         {
@@ -161,6 +205,7 @@ public sealed class ShelvesView : ScrollPage
                 var home = await InnerTube.Instance.Home(_chipBrowse ?? _browseId, _chipParams);
                 shelves = home.Shelves;
                 chips = home.Chips;
+                _more = home.Continuation;
             }
             else shelves = await InnerTube.Instance.BrowseShelves(_browseId);
             Body.Children.Clear();
@@ -180,7 +225,8 @@ public sealed class ShelvesView : ScrollPage
                 Anim.Appear(shelf, delay);
                 delay = Math.Min(delay + 60, 360);
             }
-            Body.Children.Add(BottomSpace());
+            Body.Children.Add(_bottom = BottomSpace());
+            DispatcherQueue.TryEnqueue(LoadMore);
         }
         catch (Exception e)
         {
@@ -228,21 +274,14 @@ public sealed class ShelvesView : ScrollPage
         var sv = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
-            HorizontalScrollMode = ScrollMode.Enabled,
+            // 휠이 가로 목록에 먹히지 않게 사용자 스크롤은 끄고, 넘기기는 ChangeView 로만
+            HorizontalScrollMode = ScrollMode.Disabled,
             VerticalScrollMode = ScrollMode.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
         row = new StackPanel { Orientation = Orientation.Horizontal };
         sv.Content = row;
-        // 셸프 위에서는 마우스 휠로도 옆으로 넘긴다 (pear 테마의 칩 줄처럼)
-        sv.PointerWheelChanged += (_, e) =>
-        {
-            var props = e.GetCurrentPoint(sv).Properties;
-            if (props.IsHorizontalMouseWheel || sv.ScrollableWidth <= 0) return;
-            if (!e.KeyModifiers.HasFlag(Windows.System.VirtualKeyModifiers.Shift)) return;
-            sv.ChangeView(sv.HorizontalOffset - props.MouseWheelDelta * 1.2, null, null);
-            e.Handled = true;
-        };
+        // 마우스 휠은 가로로 넘기지 않고 화면을 위아래로 (가로는 ‹ › 버튼으로)
         return sv;
     }
 

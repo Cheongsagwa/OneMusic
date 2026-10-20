@@ -202,12 +202,15 @@ public sealed class PlayerService
         if (i < 0 || i >= AutoChips.Count) return;
         var chip = AutoChips[i];
         AutoChips = AutoChips.Select((c, k) => c with { Selected = k == i }).ToList();
-        var seed = chip.VideoId ?? Queue.ElementAtOrDefault(Math.Max(0, AutoStart - 1))?.VideoId;
-        await LoadAuto(seed, chip.PlaylistId, chip.Params, keepChips: true);
+        var seed = Queue.ElementAtOrDefault(Math.Max(0, AutoStart - 1))?.VideoId;
+        await LoadAuto(ct => InnerTube.Instance.ChipQueue(chip, seed, ct), null, keepChips: true);
     }
 
     /// <summary>자동재생 구간을 새로 받아 바꿔 끼운다</summary>
-    private async Task LoadAuto(string? videoId, string? playlistId, string? @params, int? version = null, bool keepChips = false)
+    private Task LoadAuto(string? videoId, string? playlistId, string? @params, int? version = null, bool keepChips = false) =>
+        LoadAuto(ct => InnerTube.Instance.GetQueue(videoId, playlistId, @params, ct), version, keepChips);
+
+    private async Task LoadAuto(Func<CancellationToken, Task<QueueData>> fetch, int? version, bool keepChips)
     {
         var v = version ?? ++_autoVersion;
         if (v != _autoVersion) return;
@@ -215,7 +218,7 @@ public sealed class PlayerService
         QueueChanged?.Invoke();
         try
         {
-            var data = await InnerTube.Instance.GetQueue(videoId, playlistId, @params);
+            var data = await fetch(CancellationToken.None);
             if (v != _autoVersion) return;
             // 지금 곡이 자동재생 구간에 있으면 그 곡까지는 남긴다 (라디오는 지금 곡 뒤를 통째로 바꾼다)
             var keep = Queue.Take(Radio ? Index + 1 : Math.Max(AutoStart, Index + 1)).ToList();

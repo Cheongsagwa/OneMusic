@@ -61,7 +61,7 @@ public sealed class InnerTube
         if (_visitorData != null) client["visitorData"] = _visitorData;
         body["context"] = new JsonObject { ["client"] = client, ["user"] = new JsonObject() };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}{endpoint}?prettyPrint=false")
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}{endpoint}{(endpoint.Contains('?') ? '&' : '?')}prettyPrint=false")
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
         };
@@ -90,7 +90,7 @@ public sealed class InnerTube
         if (Log.DevRoot != null)
         {
             // 개발 중엔 마지막 응답을 남겨 두고 구조를 확인한다
-            try { File.WriteAllText(IOPath.Combine(Log.DevRoot, ".dev", $"last-{endpoint.Replace('/', '_')}.json"), text); } catch { }
+            try { File.WriteAllText(IOPath.Combine(Log.DevRoot, ".dev", $"last-{endpoint.Split('?')[0].Replace('/', '_')}.json"), text); } catch { }
         }
         var json = JsonNode.Parse(text);
         _visitorData ??= json.P("responseContext", "visitorData").Str();
@@ -204,8 +204,19 @@ public sealed class InnerTube
             c.P("navigationEndpoint", "browseEndpoint", "browseId").Str(),
             c.P("navigationEndpoint", "browseEndpoint", "params").Str(),
             c.P("isSelected")?.GetValue<bool>() == true)).Where(c => c.Text.Length > 0).ToList();
-        return new HomeData(chips, ParseShelves(json));
+        return new HomeData(chips, ParseShelves(json), NextToken(json));
     }
+
+    /// <summary>홈을 끝까지 내리면 이어지는 셸프들 (YT Music 홈은 6개쯤씩 나눠서 준다)</summary>
+    public async Task<HomeData> HomeMore(string token, CancellationToken ct = default)
+    {
+        var json = await Post($"browse?ctoken={Uri.EscapeDataString(token)}&continuation={Uri.EscapeDataString(token)}&type=next", new JsonObject(), ct);
+        return new HomeData(new(), ParseShelves(json), NextToken(json));
+    }
+
+    private static string? NextToken(JsonNode? json) =>
+        json.FindFirst("sectionListContinuation").P("continuations", 0, "nextContinuationData", "continuation").Str()
+        ?? json.FindFirst("sectionListRenderer").P("continuations", 0, "nextContinuationData", "continuation").Str();
 
     /// <summary>화면(홈 · 둘러보기 · 보관함 · 관련 항목) 응답에서 셸프들을 뽑는다</summary>
     public async Task<List<Shelf>> BrowseShelves(string browseId, CancellationToken ct = default)
@@ -293,12 +304,17 @@ public sealed class InnerTube
         body["playlistId"] = playlistId ?? (videoId != null ? "RDAMVM" + videoId : null);
         if (@params != null) body["params"] = @params;
         var json = await Post("next", body, ct);
+        return ParseQueue(json);
+    }
+
+    private static QueueData ParseQueue(JsonNode? json)
+    {
         // 자동재생 칩: musicQueueRenderer.subHeaderChipCloud 안의 칩들. 누르면 queueUpdateCommand 의 watchEndpoint 로 다시 부른다
         var chips = json.FindFirst("musicQueueRenderer").P("subHeaderChipCloud").FindAll("chipCloudChipRenderer").Select(c =>
         {
             var ep = c.P("navigationEndpoint").FindFirst("watchEndpoint") ?? c.P("navigationEndpoint").FindFirst("watchPlaylistEndpoint");
             return new QueueChip(c.P("text").Text(), ep.P("videoId").Str(), ep.P("playlistId").Str(), ep.P("params").Str(),
-                c.P("isSelected")?.GetValue<bool>() == true);
+                c.P("isSelected")?.GetValue<bool>() == true) { Endpoint = ep?.ToJsonString() };
         }).Where(c => c.Text.Length > 0 && (c.PlaylistId != null || c.Params != null)).ToList();
         // 플레이리스트 · 앨범 뒤의 '자동재생' 미리보기 → 이어 붙일 목록 주소
         var automix = json.FindFirst("automixPreviewVideoRenderer").FindFirst("watchPlaylistEndpoint");
@@ -325,6 +341,23 @@ public sealed class InnerTube
             if (chosen != null && ParsePanel(chosen) is { } t) list.Add(t);
         }
         return extra(new QueueData(list.DistinctBy(t => t.VideoId).ToList(), title.Length > 0 ? title : null, related));
+    }
+
+    /// <summary>
+    /// 자동재생 칩을 눌렀을 때 — 칩의 watchEndpoint 를 그대로 next 본문으로 보낸다 (YT 웹과 같게).
+    /// 우리 기본 값(isAudioOnly · tunerSetting · persistent panel)을 섞으면 서버가 칩 params 를 무시하고 같은 목록을 줬다
+    /// </summary>
+    public async Task<QueueData> ChipQueue(QueueChip chip, string? seedVideoId, CancellationToken ct = default)
+    {
+        if (chip.Endpoint == null) return await GetQueue(chip.VideoId ?? seedVideoId, chip.PlaylistId, chip.Params, ct);
+        var body = (JsonNode.Parse(chip.Endpoint) as JsonObject) ?? new JsonObject();
+        body.Remove("watchEndpointMusicSupportedConfigs");
+        if (!body.ContainsKey("videoId") && seedVideoId != null) body["videoId"] = seedVideoId;
+        body["isAudioOnly"] = true;
+        var json = await Post("next", body, ct);
+        var q = ParseQueue(json);
+        Log.Info($"칩 '{chip.Text}' → {q.Tracks.Count}곡: {string.Join(", ", q.Tracks.Take(4).Select(t => t.Title))}");
+        return q;
     }
 
     /// <summary>앨범 · 플레이리스트 · 아티스트 페이지의 곡들</summary>

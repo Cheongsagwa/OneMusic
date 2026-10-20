@@ -37,7 +37,7 @@ public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks =
 /// <summary>홈 맨 위 분위기 칩 (휴식 · 운동 …)</summary>
 public sealed record Chip(string Text, string? BrowseId, string? Params, bool Selected);
 
-public sealed record HomeData(List<Chip> Chips, List<Shelf> Shelves);
+public sealed record HomeData(List<Chip> Chips, List<Shelf> Shelves, string? Continuation = null);
 
 /// <summary>
 /// 다음 트랙 목록 + 출처 이름(예: 'NEW YORK 믹스') + 관련 항목 페이지
@@ -51,7 +51,11 @@ public sealed record QueueData(List<Track> Tracks, string? Title, string? Relate
 }
 
 /// <summary>자동재생 칩 하나 — 누르면 이 주소(next)로 자동재생 목록을 다시 받는다</summary>
-public sealed record QueueChip(string Text, string? VideoId, string? PlaylistId, string? Params, bool Selected);
+public sealed record QueueChip(string Text, string? VideoId, string? PlaylistId, string? Params, bool Selected)
+{
+    /// <summary>칩이 가진 watchEndpoint JSON 그대로 (YT 웹이 칩을 누를 때 보내는 값을 그대로 보낸다)</summary>
+    public string? Endpoint { get; init; }
+}
 
 public enum PageKind { Album, Playlist, Artist }
 
