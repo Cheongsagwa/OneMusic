@@ -295,9 +295,15 @@ public sealed class MainWindow : Window
 
     private void ShowTab(int i)
     {
+        var views = new ShelvesView[] { Home, Explore, Library };
+        // 이미 보고 있는 탭을 다시 누르면 맨 위로
+        if (_details.Count == 0 && !PlayerPage.IsOpen && Search.Visibility != Visibility.Visible && views[i].Visibility == Visibility.Visible)
+        {
+            views[i].ScrollToTop();
+            return;
+        }
         ClosePlayer();
         ClearDetails();
-        var views = new ShelvesView[] { Home, Explore, Library };
         Search.Visibility = Visibility.Collapsed;
         for (var k = 0; k < views.Length; k++)
         {

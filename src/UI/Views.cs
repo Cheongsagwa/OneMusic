@@ -103,6 +103,9 @@ public class ScrollPage : Grid
     }
 
     protected static Border BottomSpace() => new() { Height = Theme.BarHeight + Theme.FloatGap * 2 + 24 };
+
+    /// <summary>맨 위로 부드럽게 (지금 탭을 다시 누르면 — YT Music 과 같게)</summary>
+    public void ScrollToTop() => Scroller.ChangeView(null, 0, null, false);
 }
 
 /// <summary>셸프 화면 (홈 · 둘러보기 · 보관함) — pear 의 One UI 셸프 모양 그대로</summary>
