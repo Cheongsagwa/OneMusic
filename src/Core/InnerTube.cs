@@ -307,34 +307,63 @@ public sealed class InnerTube
         var count = header.P("countText").Text();
 
         // 새 형식: 내용은 frameworkUpdates 의 commentEntityPayload (entityKey = commentViewModel.commentKey)
+        // 좋아요 · 싫어요 · 답글 동작은 toolbarSurface, 내가 누른 상태는 toolbarState 에 따로 온다
         var map = new Dictionary<string, JsonNode>();
+        var surfaces = new Dictionary<string, JsonNode>();
+        var states = new Dictionary<string, JsonNode>();
         foreach (var arr in json.FindAll("mutations").OfType<JsonArray>())
             foreach (var m in arr)
-                if (m.P("payload", "commentEntityPayload") is { } pl && m.P("entityKey").Str() is { } key)
-                    map[key] = pl;
-        Comment? FromPayload(JsonNode p, string? repliesToken) => new(
-            p.P("author", "displayName").Str() ?? "",
-            p.P("author", "avatarThumbnailUrl").Str(),
-            p.P("properties", "content", "content").Str() ?? "",
-            p.P("properties", "publishedTime").Str() ?? "",
-            p.P("toolbar", "likeCountNotliked").Str() ?? "",
-            p.P("toolbar", "replyCount").Str() ?? "") { RepliesToken = repliesToken };
+            {
+                if (m.P("entityKey").Str() is not { } key) continue;
+                if (m.P("payload", "commentEntityPayload") is { } pl) map[key] = pl;
+                else if (m.P("payload", "engagementToolbarSurfaceEntityPayload") is { } sf) surfaces[key] = sf;
+                else if (m.P("payload", "engagementToolbarStateEntityPayload") is { } st) states[key] = st;
+            }
+        string? Action(JsonNode? surface, string name) =>
+            surface.P(name).FindFirst("performCommentActionEndpoint").P("action").Str();
+        Comment? FromView(JsonNode vm, string? repliesToken)
+        {
+            if (vm.P("commentKey").Str() is not { } key || !map.TryGetValue(key, out var p)) return null;
+            var surface = vm.P("toolbarSurfaceKey").Str() is { } sk ? surfaces.GetValueOrDefault(sk) : null;
+            var state = vm.P("toolbarStateKey").Str() is { } tk ? states.GetValueOrDefault(tk) : null;
+            return new Comment(
+                p.P("author", "displayName").Str() ?? "",
+                p.P("author", "avatarThumbnailUrl").Str(),
+                p.P("properties", "content", "content").Str() ?? "",
+                p.P("properties", "publishedTime").Str() ?? "",
+                p.P("toolbar", "likeCountNotliked").Str() ?? "",
+                p.P("toolbar", "replyCount").Str() ?? "")
+            {
+                RepliesToken = repliesToken,
+                LikesLiked = p.P("toolbar", "likeCountLiked").Str(),
+                LikeState = state.P("likeState").Str() switch
+                {
+                    "TOGGLE_LIKE_STATE_LIKED" => "LIKED",
+                    "TOGGLE_LIKE_STATE_DISLIKED" => "DISLIKED",
+                    _ => "INDIFFERENT",
+                },
+                LikeAction = Action(surface, "likeCommand"),
+                UnlikeAction = Action(surface, "unlikeCommand"),
+                DislikeAction = Action(surface, "dislikeCommand"),
+                UndislikeAction = Action(surface, "undislikeCommand"),
+                ReplyParams = surface.P("replyCommand").FindFirst("createReplyParams").Str(),
+            };
+        }
 
         var list = new List<Comment>();
         if (!replies)
         {
             foreach (var t in json.FindAll("commentThreadRenderer"))
             {
-                var key = t.FindFirst("commentKey").Str();
                 var rt = t.P("replies").FindFirst("continuationCommand").P("token").Str();
-                if (key != null && map.TryGetValue(key, out var p) && FromPayload(p, rt) is { } c) list.Add(c);
+                if (t.FindFirst("commentViewModel") is { } vm && FromView(vm, rt) is { } c) list.Add(c);
             }
         }
         else
         {
             // 답글: 묶음 없이 commentViewModel 이 차례로 온다
             foreach (var vm in json.FindAll("commentViewModel"))
-                if (vm.P("commentKey").Str() is { } key && map.TryGetValue(key, out var p) && FromPayload(p, null) is { } c && list.All(x => x.Text != c.Text || x.Author != c.Author))
+                if (FromView(vm, null) is { } c && list.All(x => x.Text != c.Text || x.Author != c.Author))
                     list.Add(c);
         }
         // 옛 형식
@@ -357,6 +386,20 @@ public sealed class InnerTube
             MyAvatar = box.P("authorThumbnail").BestThumb(),
             Placeholder = box.P("placeholderText").Text() is { Length: > 0 } ph ? ph : null,
         };
+    }
+
+    /// <summary>댓글 좋아요 · 싫어요 (perform_comment_action) — 성공하면 true</summary>
+    public async Task<bool> CommentAction(string action, CancellationToken ct = default)
+    {
+        var json = await Post("comment/perform_comment_action", new JsonObject { ["actions"] = new JsonArray(action) }, ct, web: true);
+        return json != null && json.P("actionResults", 0, "status").Str() is null or "STATUS_SUCCEEDED";
+    }
+
+    /// <summary>답글 쓰기 — 성공하면 true</summary>
+    public async Task<bool> PostReply(string text, string replyParams, CancellationToken ct = default)
+    {
+        var json = await Post("comment/create_comment_reply", new JsonObject { ["commentText"] = text, ["createReplyParams"] = replyParams }, ct, web: true);
+        return json != null && (json.P("actionResult", "status").Str() is null or "STATUS_SUCCEEDED");
     }
 
     /// <summary>댓글 쓰기 (YouTube 계정으로) — 성공하면 true</summary>

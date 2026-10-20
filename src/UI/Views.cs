@@ -551,7 +551,7 @@ public sealed class ShelvesView : ScrollPage
             t.HorizontalAlignment = HorizontalAlignment.Center;
             t.VerticalAlignment = VerticalAlignment.Center;
             Children.Add(t);
-            EffectiveViewportChanged += (_, e) =>
+            EffectiveViewportChanged += (s, e) =>
             {
                 if (e.BringIntoViewDistanceY < 900 && pager.HasMore) _ = pager.Next();
             };

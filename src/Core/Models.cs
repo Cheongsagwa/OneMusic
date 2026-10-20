@@ -196,6 +196,17 @@ public sealed record Comment(string Author, string? Avatar, string Text, string 
 {
     /// <summary>답글 묶음을 받아 올 토큰</summary>
     public string? RepliesToken { get; init; }
+    /// <summary>좋아요를 눌렀을 때 보일 수 (YT 가 미리 준다)</summary>
+    public string? LikesLiked { get; init; }
+    /// <summary>LIKED · DISLIKED · INDIFFERENT</summary>
+    public string? LikeState { get; init; }
+    /// <summary>좋아요 · 좋아요 취소 · 싫어요 · 싫어요 취소 동작 (perform_comment_action 에 그대로)</summary>
+    public string? LikeAction { get; init; }
+    public string? UnlikeAction { get; init; }
+    public string? DislikeAction { get; init; }
+    public string? UndislikeAction { get; init; }
+    /// <summary>답글 쓰기 (create_comment_reply)</summary>
+    public string? ReplyParams { get; init; }
 }
 
 /// <summary>댓글 한 묶음 + '댓글 810개' + 다음 묶음 토큰</summary>

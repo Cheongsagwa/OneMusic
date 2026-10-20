@@ -97,7 +97,11 @@ public sealed class CommentsView : Grid
                 _createParams = page.CreateParams;
                 _compose.Visibility = Visibility.Visible;
                 _input.PlaceholderText = page.Placeholder ?? "댓글 추가...";
-                if (page.MyAvatar != null) _myAvatar.Child = new Image { Source = Theme.Image(page.MyAvatar, 28), Stretch = Stretch.UniformToFill };
+                if (page.MyAvatar != null)
+                {
+                    _myAvatarUrl = page.MyAvatar;
+                    _myAvatar.Child = new Image { Source = Theme.Image(page.MyAvatar, 28), Stretch = Stretch.UniformToFill };
+                }
             }
             if (page.Items.Count == 0)
             {
@@ -140,7 +144,7 @@ public sealed class CommentsView : Grid
             if (ok)
             {
                 _input.Text = "";
-                var mine = Row(new Comment("나", null, text, "방금 전", "", ""), reply: false);
+                var mine = Row(new Comment("나", _myAvatarUrl, text, "방금 전", "", ""), reply: false);
                 _list.Children.Insert(0, mine);
                 Anim.Appear(mine);
                 Toast.Show("댓글을 올렸어요");
@@ -182,6 +186,8 @@ public sealed class CommentsView : Grid
         }
     }
 
+    private string? _myAvatarUrl;
+
     private FrameworkElement Row(Comment c, bool reply)
     {
         var size = reply ? 28 : 40;
@@ -200,18 +206,18 @@ public sealed class CommentsView : Grid
         text.TextWrapping = TextWrapping.Wrap;
         text.IsTextSelectionEnabled = true;
         body.Children.Add(text);
-        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 4, 0, 0) };
-        bar.Children.Add(Theme.Icon(Icons.ThumbUp, 18, Theme.Secondary, stroke: true));
-        if (c.Likes.Length > 0) bar.Children.Add(Theme.Text(c.Likes, 13, FontWeights.Normal, Theme.Secondary));
-        var down = Theme.Icon(Icons.ThumbDown, 18, Theme.Secondary, stroke: true);
-        down.Margin = new Thickness(8, 0, 0, 0);
-        bar.Children.Add(down);
-        body.Children.Add(bar);
+        body.Children.Add(Toolbar(c, reply, out var replyClicked));
 
-        // 답글 N개 ⌄ — 누르면 펼쳐지고, 다시 누르면 접힌다
+        // 답글: 왼쪽 이음선 + 들여 쓴 목록. 'N개 ⌄' 를 누르면 펼쳐지고, 내가 쓴 답글도 여기에
+        var replies = new StackPanel { Spacing = 14, Margin = new Thickness(0, 8, 0, 0) };
+        var thread = new Grid { ColumnSpacing = 10, Visibility = Visibility.Collapsed };
+        thread.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2) });
+        thread.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        thread.Children.Add(new XRect { Width = 2, RadiusX = 1, RadiusY = 1, Fill = Theme.B(Theme.Divider) });
+        SetColumn(replies, 1);
+        thread.Children.Add(replies);
         if (!reply && c.RepliesToken != null && c.Replies is { Length: > 0 } r && r != "0")
         {
-            var replies = new StackPanel { Spacing = 14, Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
             var toggle = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 6, 0, 0), Background = new SolidColorBrush(Colors.Transparent) };
             var label = Theme.Text($"답글 {r}개", 14, FontWeights.Bold, Theme.OnSurface);
             label.VerticalAlignment = VerticalAlignment.Center;
@@ -223,8 +229,9 @@ public sealed class CommentsView : Grid
             var loaded = false;
             toggle.Tapped += async (_, _) =>
             {
-                var open = replies.Visibility != Visibility.Visible;
-                replies.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                var open = thread.Visibility != Visibility.Visible;
+                thread.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                if (open) Anim.Appear(thread, 0, 8);
                 var rot = (RotateTransform)chevron.RenderTransform;
                 Tween.Run(rot, Anim.Medium, Tween.Out, k => rot.Angle = open ? 180 * k : 180 * (1 - k));
                 if (!open || loaded || _for == null) return;
@@ -234,7 +241,7 @@ public sealed class CommentsView : Grid
                 try
                 {
                     var page = await InnerTube.Instance.Comments(_for, c.RepliesToken, replies: true);
-                    replies.Children.Clear();
+                    replies.Children.Remove(wait);
                     var delay = 0;
                     foreach (var rc in page.Items)
                     {
@@ -253,19 +260,146 @@ public sealed class CommentsView : Grid
             };
             Anim.Pressable(toggle, 0.96f);
             body.Children.Add(toggle);
-            // 답글은 왼쪽에 이음선을 두고 들여 쓴다
-            var thread = new Grid { ColumnSpacing = 10 };
-            thread.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2) });
-            thread.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            thread.Children.Add(new XRect { Width = 2, RadiusX = 1, RadiusY = 1, Fill = Theme.B(Theme.Divider) });
-            SetColumn(replies, 1);
-            thread.Children.Add(replies);
-            replies.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => thread.Visibility = replies.Visibility);
-            thread.Visibility = Visibility.Collapsed;
-            body.Children.Add(thread);
+        }
+        body.Children.Add(thread);
+
+        // 답글 쓰기 칸 — '답글' 을 누르면 열린다. Enter 로 올리고, 올린 답글은 바로 이음선 안에
+        if (!reply && c.ReplyParams is { } replyParams)
+        {
+            var box = ReplyBox(async t =>
+            {
+                if (!await InnerTube.Instance.PostReply(t, replyParams)) return false;
+                thread.Visibility = Visibility.Visible;
+                var mine = Row(new Comment("나", _myAvatarUrl, t, "방금 전", "", ""), reply: true);
+                replies.Children.Insert(0, mine);
+                Anim.Appear(mine, 0, 8);
+                Toast.Show("답글을 올렸어요");
+                return true;
+            });
+            body.Children.Insert(body.Children.IndexOf(thread), box);
+            replyClicked = () =>
+            {
+                if (!Auth.IsLoggedIn) { Toast.Show("로그인이 필요해요"); return; }
+                var open = box.Visibility != Visibility.Visible;
+                box.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                if (!open) return;
+                Anim.Appear(box, 0, 6);
+                (box.Children.OfType<TextBox>().FirstOrDefault())?.Focus(FocusState.Programmatic);
+            };
+            SetReply(body, replyClicked);
         }
         SetColumn(body, 1);
         g.Children.Add(body);
+        return g;
+    }
+
+    /// <summary>좋아요(수) · 싫어요 · 답글 — 누르면 YouTube 에 그대로 보내고 채운 아이콘으로 (실패하면 되돌림)</summary>
+    private static FrameworkElement Toolbar(Comment c, bool reply, out Action? replyClicked)
+    {
+        replyClicked = null;
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(-8, 0, 0, 0) };
+        var state = c.LikeState ?? "INDIFFERENT";
+        var like = new IconButton(32);
+        var dislike = new IconButton(32);
+        var count = Theme.Text("", 13, FontWeights.Normal, Theme.Secondary);
+        count.VerticalAlignment = VerticalAlignment.Center;
+        count.Margin = new Thickness(0, 0, 8, 0);
+        void Draw()
+        {
+            like.Content = state == "LIKED" ? Theme.IconFilledStroke(Icons.ThumbUp, 16, Colors.White) : Theme.Icon(Icons.ThumbUp, 16, Theme.Secondary, stroke: true);
+            dislike.Content = state == "DISLIKED" ? Theme.IconFilledStroke(Icons.ThumbDown, 16, Colors.White) : Theme.Icon(Icons.ThumbDown, 16, Theme.Secondary, stroke: true);
+            count.Text = state == "LIKED" ? c.LikesLiked ?? c.Likes : c.Likes;
+        }
+        Draw();
+        async void Press(bool up)
+        {
+            if (!Auth.IsLoggedIn) { Toast.Show("로그인이 필요해요"); return; }
+            var on = up ? state == "LIKED" : state == "DISLIKED";
+            var action = up ? (on ? c.UnlikeAction : c.LikeAction) : (on ? c.UndislikeAction : c.DislikeAction);
+            if (action == null) { Toast.Show("이 댓글에는 할 수 없어요"); return; }
+            var prev = state;
+            state = on ? "INDIFFERENT" : up ? "LIKED" : "DISLIKED";
+            Draw();
+            var btn = up ? like : dislike;
+            Anim.V(btn.Content!).Scale = new Vector3(0.6f, 0.6f, 1);
+            Anim.Scale(btn.Content!, 1f);
+            try
+            {
+                if (await InnerTube.Instance.CommentAction(action)) return;
+            }
+            catch (Exception e) { Log.Warn($"댓글 좋아요 실패: {e.Message}"); }
+            state = prev;
+            Draw();
+            Toast.Show("하지 못했어요");
+        }
+        like.Click += () => Press(true);
+        dislike.Click += () => Press(false);
+        Tip.Set(like, "좋아요");
+        Tip.Set(dislike, "싫어요");
+        bar.Children.Add(like);
+        bar.Children.Add(count);
+        bar.Children.Add(dislike);
+        if (!reply && c.ReplyParams != null)
+        {
+            var r = new Border { Height = 32, CornerRadius = new CornerRadius(16), Padding = new Thickness(12, 0, 12, 0), Background = new SolidColorBrush(Colors.Transparent), Margin = new Thickness(6, 0, 0, 0) };
+            var rt = Theme.Text("답글", 13, FontWeights.SemiBold, Theme.OnSurface);
+            rt.VerticalAlignment = VerticalAlignment.Center;
+            r.Child = rt;
+            r.PointerEntered += (_, _) => r.Background = Theme.B(Theme.ChipHover);
+            r.PointerExited += (_, _) => r.Background = new SolidColorBrush(Colors.Transparent);
+            Anim.Pressable(r, 0.94f);
+            r.Tag = "reply";
+            bar.Children.Add(r);
+        }
+        return bar;
+    }
+
+    /// <summary>툴바의 '답글' 단추에 동작을 붙인다</summary>
+    private static void SetReply(StackPanel body, Action click)
+    {
+        foreach (var bar in body.Children.OfType<StackPanel>())
+            if (bar.Children.OfType<Border>().FirstOrDefault(x => x.Tag as string == "reply") is { } r)
+            {
+                r.Tapped += (_, e) => { e.Handled = true; click(); };
+                return;
+            }
+    }
+
+    /// <summary>답글 입력 칸 (밑줄) — Enter 로 올린다. 올리면 비우고 닫힌다</summary>
+    private Grid ReplyBox(Func<string, Task<bool>> send)
+    {
+        var g = new Grid { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 4) };
+        var input = new TextBox { FontFamily = Theme.Font, FontSize = 14, BorderThickness = new Thickness(0, 0, 0, 1), Background = new SolidColorBrush(Colors.Transparent), PlaceholderText = "답글 추가..." };
+        foreach (var key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused" })
+            input.Resources[key] = new SolidColorBrush(Colors.Transparent);
+        input.Resources["TextControlBorderBrush"] = Theme.B(Theme.Divider);
+        input.Resources["TextControlBorderBrushPointerOver"] = Theme.B(Theme.Secondary);
+        input.Resources["TextControlBorderBrushFocused"] = Theme.B(Colors.White);
+        input.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape) { g.Visibility = Visibility.Collapsed; e.Handled = true; return; }
+            if (e.Key != Windows.System.VirtualKey.Enter) return;
+            e.Handled = true;
+            var t = input.Text.Trim();
+            if (t.Length == 0) return;
+            input.IsEnabled = false;
+            try
+            {
+                if (await send(t))
+                {
+                    input.Text = "";
+                    g.Visibility = Visibility.Collapsed;
+                }
+                else Toast.Show("답글을 올리지 못했어요");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"답글 쓰기 실패: {ex.Message}");
+                Toast.Show("답글을 올리지 못했어요");
+            }
+            finally { input.IsEnabled = true; }
+        };
+        g.Children.Add(input);
         return g;
     }
 }

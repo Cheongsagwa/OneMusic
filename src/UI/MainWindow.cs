@@ -206,7 +206,7 @@ public sealed class MainWindow : Window
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
         {
             if (e.Key != Windows.System.VirtualKey.Escape && Shortcuts.Handle(this, e)) { e.Handled = true; return; }
-            if (e.Key != Windows.System.VirtualKey.Escape) return;
+            if (e.Key != Windows.System.VirtualKey.Escape || e.Handled) return;
             if (OneMenu.IsOpen) OneMenu.CloseAll();
             else if (PlayerPage.IsOpen) ClosePlayer();
             else if (e.OriginalSource is not TextBox) Back();
