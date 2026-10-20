@@ -250,9 +250,12 @@ public sealed class InnerTube
     }
 
     /// <summary>'재생목록에 저장' 에 보일 내 재생목록들 (이름 · ID · 이미 들어 있는지)</summary>
-    public async Task<List<(string Title, string PlaylistId, bool Contains)>> MyPlaylists(string videoId, CancellationToken ct = default)
+    public async Task<List<(string Title, string PlaylistId, bool Contains)>> MyPlaylists(string? videoId, string? sourcePlaylistId = null, CancellationToken ct = default)
     {
-        var json = await Post("playlist/get_add_to_playlist", new JsonObject { ["videoIds"] = new JsonArray(videoId) }, ct);
+        var body = new JsonObject { ["excludeWatchLater"] = false };
+        if (videoId != null) body["videoIds"] = new JsonArray(videoId);
+        else if (sourcePlaylistId != null) body["playlistId"] = sourcePlaylistId;
+        var json = await Post("playlist/get_add_to_playlist", body, ct);
         return json.FindAll("playlistAddToOptionRenderer").Select(r => (
             r.P("title").Text(),
             r.P("playlistId").Str() ?? "",
@@ -267,6 +270,30 @@ public sealed class InnerTube
             ["actions"] = new JsonArray(new JsonObject { ["action"] = "ACTION_ADD_VIDEO", ["addedVideoId"] = videoId }),
         }, ct);
         return json.P("status").Str() == "STATUS_SUCCEEDED";
+    }
+
+    /// <summary>재생목록(앨범) 통째로 다른 재생목록에 넣는다</summary>
+    public async Task<bool> AddPlaylistToPlaylist(string playlistId, string sourcePlaylistId, CancellationToken ct = default)
+    {
+        var json = await Post("browse/edit_playlist", new JsonObject
+        {
+            ["playlistId"] = playlistId,
+            ["actions"] = new JsonArray(new JsonObject { ["action"] = "ACTION_ADD_PLAYLIST", ["addedFullListId"] = sourcePlaylistId }),
+        }, ct);
+        return json.P("status").Str() == "STATUS_SUCCEEDED";
+    }
+
+    /// <summary>새 재생목록 (비공개) — 만든 재생목록 ID</summary>
+    public async Task<string?> CreatePlaylist(string title, IEnumerable<string> videoIds, string privacy = "PRIVATE", CancellationToken ct = default)
+    {
+        var json = await Post("playlist/create", new JsonObject
+        {
+            ["title"] = title,
+            ["description"] = "",
+            ["privacyStatus"] = privacy,
+            ["videoIds"] = new JsonArray(videoIds.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray()),
+        }, ct);
+        return json.P("playlistId").Str();
     }
 
     /// <summary>로그인한 계정의 프로필 사진</summary>
@@ -470,14 +497,17 @@ public sealed class InnerTube
         {
             // 한 줄에 '음원(ATV)'과 '뮤직비디오(OMV)'가 함께 들어 있는 경우가 많다 → 음원만 고른다
             JsonNode? chosen = item.P("playlistPanelVideoRenderer");
+            string? counterpart = null;
             if (item.P("playlistPanelVideoWrapperRenderer") is { } wrap)
             {
                 var versions = new List<JsonNode?> { wrap.P("primaryRenderer", "playlistPanelVideoRenderer") };
                 if (wrap.P("counterpart") is JsonArray cps)
                     versions.AddRange(cps.Select(c => c.P("counterpartRenderer", "playlistPanelVideoRenderer")));
                 chosen = versions.FirstOrDefault(v => VideoType(v) == "MUSIC_VIDEO_TYPE_ATV") ?? versions[0];
+                // 노래/동영상 전환에 쓸 짝 (뮤직비디오)
+                counterpart = versions.FirstOrDefault(v => v != chosen).P("videoId").Str();
             }
-            if (chosen != null && ParsePanel(chosen) is { } t) list.Add(t);
+            if (chosen != null && ParsePanel(chosen) is { } t) list.Add(t with { CounterpartId = counterpart });
         }
         return extra(new QueueData(list.DistinctBy(t => t.VideoId).ToList(), title.Length > 0 ? title : null, related));
     }
@@ -596,6 +626,65 @@ public sealed class InnerTube
     private static readonly Regex TimeRx = new(@"^\d{1,2}(:\d{2}){1,2}$", RegexOptions.Compiled);
     private static readonly string[] TypeLabels = ["노래", "동영상", "Song", "Video", "에피소드", "Episode"];
 
+    /// <summary>⋮ 메뉴 (menuRenderer.items) — YT 가 주는 순서 · 글자 · 동작 그대로</summary>
+    public static List<YtMenuItem>? ParseMenu(JsonNode? menu)
+    {
+        if (menu.P("items") is not JsonArray items) return null;
+        var list = new List<YtMenuItem>();
+        foreach (var it in items)
+        {
+            if (it.P("menuNavigationItemRenderer") is { } nav)
+                list.Add(new YtMenuItem(nav.P("text").Text(), nav.P("icon", "iconType").Str(), nav.P("navigationEndpoint")?.ToJsonString()));
+            else if (it.P("menuServiceItemRenderer") is { } svc)
+                list.Add(new YtMenuItem(svc.P("text").Text(), svc.P("icon", "iconType").Str(), svc.P("serviceEndpoint")?.ToJsonString()));
+            else if (it.P("toggleMenuServiceItemRenderer") is { } tg)
+                list.Add(new YtMenuItem(tg.P("defaultText").Text(), tg.P("defaultIcon", "iconType").Str(), tg.P("defaultServiceEndpoint")?.ToJsonString())
+                {
+                    Toggle = true,
+                    Toggled = tg.P("isToggled")?.GetValue<bool>() == true,
+                    ToggledText = tg.P("toggledText").Text(),
+                    ToggledIcon = tg.P("toggledIcon", "iconType").Str(),
+                    ToggledEndpoint = tg.P("toggledServiceEndpoint")?.ToJsonString(),
+                });
+            else if (it.P("menuServiceItemDownloadRenderer") is { } dl)
+                list.Add(new YtMenuItem("오프라인 저장", "OFFLINE_DOWNLOAD", dl.P("serviceEndpoint")?.ToJsonString()) { Download = true });
+        }
+        list.RemoveAll(x => x.Text.Length == 0);
+        return list.Count > 0 ? list : null;
+    }
+
+    /// <summary>곡 하나의 ⋮ 메뉴를 따로 받아 온다 (메뉴 없이 만들어진 곡용) — next 의 첫 줄 메뉴</summary>
+    public async Task<List<YtMenuItem>?> TrackMenu(string videoId, CancellationToken ct = default)
+    {
+        var json = await Post("next", new JsonObject { ["videoId"] = videoId, ["isAudioOnly"] = true }, ct);
+        RememberLike(videoId, json);
+        foreach (var r in json.FindAll("playlistPanelVideoRenderer"))
+            if (r.P("videoId").Str() == videoId) return ParseMenu(r.P("menu", "menuRenderer"));
+        return null;
+    }
+
+    /// <summary>YT 쪽 동작 하나를 그대로 보낸다 (feedback · like · edit_playlist …). 성공하면 true</summary>
+    public async Task<bool> Feedback(string token, CancellationToken ct = default)
+    {
+        var json = await Post("feedback", new JsonObject { ["feedbackTokens"] = new JsonArray(token) }, ct);
+        return json != null && json.P("feedbackResponses", 0, "isProcessed")?.GetValue<bool>() != false;
+    }
+
+    public async Task<bool> RateTarget(JsonNode target, string status, CancellationToken ct = default)
+    {
+        var ep = status switch { "LIKE" => "like/like", "DISLIKE" => "like/dislike", _ => "like/removelike" };
+        var json = await Post(ep, new JsonObject { ["target"] = target.DeepClone() }, ct);
+        if (json != null && target.P("videoId").Str() is { } vid) lock (Likes) Likes[vid] = status;
+        return json != null;
+    }
+
+    public async Task<bool> EditPlaylist(JsonNode endpoint, CancellationToken ct = default)
+    {
+        var body = (endpoint.DeepClone() as JsonObject) ?? new JsonObject();
+        var json = await Post("browse/edit_playlist", body, ct);
+        return json.P("status").Str() == "STATUS_SUCCEEDED";
+    }
+
     /// <summary>'노래 • MC몽' 처럼 앞에 붙은 종류 글자를 뗀다</summary>
     public static string StripType(string subtitle)
     {
@@ -638,7 +727,11 @@ public sealed class InnerTube
         var thumb = item.P("thumbnail").BestThumb();
         var rest = cols?.Skip(1).ToList() ?? new List<JsonNode?>();
         return new Track(videoId, title, artist, album, thumb, duration,
-            rest.Select(ArtistOf).FirstOrDefault(x => x != null), rest.Select(AlbumOf).FirstOrDefault(x => x != null));
+            rest.Select(ArtistOf).FirstOrDefault(x => x != null), rest.Select(AlbumOf).FirstOrDefault(x => x != null))
+        {
+            Menu = ParseMenu(item.P("menu", "menuRenderer")),
+            VideoType = item.FindFirst("musicVideoType").Str(),
+        };
     }
 
     private static string? VideoType(JsonNode? r) =>
@@ -655,7 +748,11 @@ public sealed class InnerTube
         var artist = segs.Length > 0 ? segs[0] : "";
         var album = segs.Length > 1 && !Regex.IsMatch(segs[1], @"^\d{4}$") ? segs[1] : null;
         var duration = Fmt.ParseTime(r.P("lengthText").Text());
-        return new Track(videoId, title, artist, album, r.P("thumbnail").BestThumb(), duration, ArtistOf(bylineNode), AlbumOf(bylineNode));
+        return new Track(videoId, title, artist, album, r.P("thumbnail").BestThumb(), duration, ArtistOf(bylineNode), AlbumOf(bylineNode))
+        {
+            Menu = ParseMenu(r.P("menu", "menuRenderer")),
+            VideoType = VideoType(r),
+        };
     }
 
     private static Card? ParseTwoRow(JsonNode two)
@@ -672,6 +769,9 @@ public sealed class InnerTube
         var playlistId = nav.P("watchEndpoint", "playlistId").Str() ?? nav.P("watchPlaylistEndpoint", "playlistId").Str();
         var browseId = nav.P("browseEndpoint", "browseId").Str();
         return new Card(title, subtitle, best.P("url").Str(), w > h * 1.2, videoId, playlistId, browseId,
-            PageTypeOf(nav.P("browseEndpoint")));
+            PageTypeOf(nav.P("browseEndpoint")))
+        {
+            Menu = ParseMenu(two.P("menu", "menuRenderer")),
+        };
     }
 }

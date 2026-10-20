@@ -172,6 +172,13 @@ public static class Icons
     public const string Share = "M14 5l6 6-6 6 M20 11h-7.5c-4 0-7.5 3-8 8";
     public const string Check = "M6 12.5l4 4 8-9";
     public const string Star = "M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z";
+    public const string QueueClose = "M4 6.5h12 M4 11.5h12 M4 16.5h7 M15.5 15l4.5 4.5 M20 15l-4.5 4.5";
+    public const string Stats = "M5 4.5h14v15H5z M8.5 16v-4 M12 16V8 M15.5 16v-6";
+    public const string LibraryAdd = "M4.5 6h11 M4.5 10.5h11 M4.5 15h6 M17.5 13v7 M14 16.5h7";
+    public const string LibrarySaved = "M4.5 6h11 M4.5 10.5h11 M4.5 15h6 M13.5 17l2.5 2.5 4.5-5";
+    public const string PlaylistAddPath = "M4.5 6.5h12M4.5 11.5h12M4.5 16.5h7M17.5 13.5v7M14 17h7";
+    public const string Flag = "M6 20.5V4.5 M6 5h10.5l-2 4 2 4H6";
+    public const string Pin = "M14.5 4.5l5 5-3 1.5-3.5 3.5.5 3.5-1.5 1.5-8-8 1.5-1.5 3.5.5 3.5-3.5z M4.5 19.5l4-4";
     public const string ChevronRight = "M9.4 6l6 6-6 6";
     public const string Link = "M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1 M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1";
     public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";

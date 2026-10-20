@@ -11,6 +11,28 @@ public sealed record Track(
     string? AlbumId = null)
 {
     public string DurationText => DurationSec > 0 ? Fmt.Time(DurationSec) : "";
+    /// <summary>YT Music 이 이 곡에 주는 ⋮ 메뉴 (항목 이름 · 순서 · 동작 그대로)</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<YtMenuItem>? Menu { get; init; }
+    /// <summary>뮤직비디오 ↔ 음원 짝 (노래/동영상 전환)</summary>
+    public string? CounterpartId { get; init; }
+    /// <summary>이 곡이 음원(ATV)인지 뮤직비디오(OMV) · 일반 동영상인지 (MUSIC_VIDEO_TYPE_…)</summary>
+    public string? VideoType { get; init; }
+}
+
+/// <summary>
+/// YT Music ⋮ 메뉴의 항목 하나 — menuNavigationItemRenderer · menuServiceItemRenderer · toggleMenuServiceItemRenderer ·
+/// menuServiceItemDownloadRenderer. Endpoint 는 누르면 할 일(JSON 그대로)
+/// </summary>
+public sealed record YtMenuItem(string Text, string? Icon, string? Endpoint)
+{
+    public bool Toggle { get; init; }
+    public bool Toggled { get; init; }
+    public string? ToggledText { get; init; }
+    public string? ToggledIcon { get; init; }
+    public string? ToggledEndpoint { get; init; }
+    /// <summary>오프라인 저장(다운로드 렌더러)</summary>
+    public bool Download { get; init; }
 }
 
 /// <summary>메인 화면 카드 (곡 · 앨범 · 플레이리스트 · 아티스트)</summary>
@@ -22,7 +44,10 @@ public sealed record Card(
     string? VideoId,
     string? PlaylistId,
     string? BrowseId,
-    string? PageType = null);
+    string? PageType = null)
+{
+    public List<YtMenuItem>? Menu { get; init; }
+}
 
 public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks = null)
 {

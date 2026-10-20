@@ -16,11 +16,11 @@ public sealed class OneMenu
     private readonly Border _box;
     private bool _closing;
 
-    public OneMenu()
+    public OneMenu(double width = 264)
     {
         _box = new Border
         {
-            Width = 264,
+            Width = width,
             CornerRadius = new CornerRadius(Theme.RadiusCard),
             Background = Theme.Glass(0.55, Color.FromArgb(255, 40, 40, 44)),
             BorderBrush = Theme.B(Color.FromArgb(24, 255, 255, 255)),
@@ -49,6 +49,20 @@ public sealed class OneMenu
         var t = Theme.Text(text, 15, FontWeights.ExtraBold, Theme.OnSurface);
         t.Margin = new Thickness(16, 10, 16, 8);
         _items.Children.Add(t);
+    }
+
+    /// <summary>누르지 않는 정보 줄 (전문 통계)</summary>
+    public void Info(string label, string value)
+    {
+        var g = new Grid { Margin = new Thickness(16, 5, 16, 5), ColumnSpacing = 12 };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.Children.Add(Theme.Text(label, 13, FontWeights.SemiBold, Theme.Secondary));
+        var v = Theme.Text(value, 13, FontWeights.SemiBold, Theme.OnSurface, 3);
+        v.IsTextSelectionEnabled = true;
+        Grid.SetColumn(v, 1);
+        g.Children.Add(v);
+        _items.Children.Add(g);
     }
 
     public void Separator() =>

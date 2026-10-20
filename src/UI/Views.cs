@@ -23,6 +23,12 @@ public static class Play
                 await p.PlaySong(t);
                 return;
             }
+            // 믹스 · 라디오(RD…)는 끝없는 라디오로 — 칩이 목록 위, 자동재생 토글 없음 (YT Music 과 같게)
+            if (c.PlaylistId?.StartsWith("RD") == true)
+            {
+                await p.PlayRadio(c.VideoId, c.PlaylistId, null, c.Title);
+                return;
+            }
             if (c.PlaylistId != null)
             {
                 var q = await InnerTube.Instance.GetQueue(c.VideoId, c.PlaylistId);

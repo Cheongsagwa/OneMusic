@@ -107,6 +107,30 @@ public sealed class StreamResolver
         return (data, total);
     }
 
+    /// <summary>전문 통계용 — 받은 주소의 형식(itag · mime) · 크기 · 출처</summary>
+    public List<(string, string)> Info(string videoId)
+    {
+        var list = new List<(string, string)>();
+        string? url = null;
+        lock (_cache) if (_cache.TryGetValue(videoId, out var c)) url = c.Url;
+        if (Offline.Instance.Has(videoId)) list.Add(("출처", "오프라인 저장"));
+        else list.Add(("출처", url != null ? "yt-dlp (YouTube)" : "-"));
+        if (url != null)
+        {
+            var q = System.Web.HttpUtility.ParseQueryString(new Uri(url).Query);
+            if (q["itag"] is { } itag) list.Add(("itag", itag));
+            if (q["mime"] is { } mime) list.Add(("형식", mime));
+            if (q["clen"] is { } clen && long.TryParse(clen, out var n)) list.Add(("크기", $"{n / 1024.0 / 1024.0:0.0} MB"));
+            if (q["dur"] is { } dur) list.Add(("길이", $"{dur} 초"));
+            if (q["expire"] is { } exp && long.TryParse(exp, out var e))
+                list.Add(("주소 만료", DateTimeOffset.FromUnixTimeSeconds(e).ToLocalTime().ToString("HH:mm")));
+        }
+        lock (_audio)
+            if (_audio.TryGetValue(videoId, out var a) && a.IsCompletedSuccessfully)
+                list.Add(("메모리", $"{a.Result.Length / 1024.0 / 1024.0:0.0} MB"));
+        return list;
+    }
+
     public async Task<string> Resolve(string videoId, bool useFallback, CancellationToken ct)
     {
         Task<string>? pending = null;

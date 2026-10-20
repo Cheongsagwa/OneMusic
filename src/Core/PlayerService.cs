@@ -187,12 +187,13 @@ public sealed class PlayerService
         AutoStart = Queue.Count;
         AutoChips = new();
         Radio = false;
-        ShowAutoplayToggle = false;
+        // 앨범 · 플레이리스트는 끝이 있는 목록 → YT Music 처럼 자동재생 토글 + 끝에 비슷한 곡
+        ShowAutoplayToggle = true;
         Index = Math.Clamp(start, 0, list.Count - 1);
         var version = ++_autoVersion;
         QueueChanged?.Invoke();
         var load = Load();
-        _ = LoadAuto(automixPlaylistId == null ? list[^1].VideoId : null, automixPlaylistId, automixParams, version);
+        if (Autoplay) _ = LoadAuto(automixPlaylistId == null ? list[^1].VideoId : null, automixPlaylistId, automixParams, version);
         await load;
     }
 
@@ -242,27 +243,93 @@ public sealed class PlayerService
         }
     }
 
-    /// <summary>지금 곡 바로 뒤에 끼운다 (YT Music '다음에 재생')</summary>
-    public void PlayNext(Track t)
+    /// <summary>
+    /// 라디오(믹스)에 곡을 직접 넣으면 YT Music 처럼 '끝이 있는 목록 + 자동재생' 으로 바뀐다:
+    /// 지금 곡까지가 고른 곡, 남은 라디오 곡들은 '자동재생 사용 중' 아래로 내려가고 자동재생 토글이 생긴다
+    /// </summary>
+    private void LeaveRadio()
     {
-        if (Current == null) { _ = PlaySong(t); return; }
-        Remove(t.VideoId, keepCurrent: true);
-        Queue.Insert(Index + 1, t);
-        if (Index + 1 < AutoStart || Radio) AutoStart++;
-        else AutoStart = Index + 2;
+        if (!Radio) return;
+        Radio = false;
+        ShowAutoplayToggle = true;
+        AutoStart = Math.Min(Queue.Count, Index + 1);
+    }
+
+    /// <summary>지금 곡 바로 뒤에 끼운다 (YT Music '다음에 재생')</summary>
+    public void PlayNext(Track t) => PlayNext(new[] { t });
+
+    public void PlayNext(IReadOnlyList<Track> tracks)
+    {
+        if (tracks.Count == 0) return;
+        if (Current == null) { _ = PlayList(tracks.ToList()); return; }
+        LeaveRadio();
+        foreach (var t in tracks) Remove(t.VideoId, keepCurrent: true);
+        Queue.InsertRange(Index + 1, tracks.Where(t => t.VideoId != Current?.VideoId));
+        var added = tracks.Count(t => t.VideoId != Current?.VideoId);
+        if (Index + 1 < AutoStart) AutoStart += added;
+        else AutoStart = Index + 1 + added;
         QueueChanged?.Invoke();
-        StreamResolver.Instance.Prefetch(t.VideoId);
+        StreamResolver.Instance.Prefetch(tracks[0].VideoId);
     }
 
     /// <summary>고른 곡들 끝(자동재생 구간 앞)에 붙인다 ('현재 재생목록에 추가')</summary>
-    public void AddToQueue(Track t)
+    public void AddToQueue(Track t) => AddToQueue(new[] { t });
+
+    public void AddToQueue(IReadOnlyList<Track> tracks)
     {
-        if (Current == null) { _ = PlaySong(t); return; }
-        Remove(t.VideoId, keepCurrent: true);
-        var at = Radio ? Queue.Count : Math.Min(AutoStart, Queue.Count);
-        Queue.Insert(at, t);
-        if (!Radio) AutoStart = at + 1;
+        if (tracks.Count == 0) return;
+        if (Current == null) { _ = PlayList(tracks.ToList()); return; }
+        LeaveRadio();
+        foreach (var t in tracks) Remove(t.VideoId, keepCurrent: true);
+        var list = tracks.Where(t => t.VideoId != Current?.VideoId).ToList();
+        var at = Math.Min(AutoStart, Queue.Count);
+        Queue.InsertRange(at, list);
+        AutoStart = at + list.Count;
         QueueChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 라디오(믹스) 시작 — ⋮ '믹스 시작' · 카드의 믹스처럼 YT 가 준 주소(watchEndpoint)로.
+    /// 칩이 목록 위에 붙고 자동재생 토글은 없다
+    /// </summary>
+    public async Task PlayRadio(string? videoId, string? playlistId, string? @params, string? title = null)
+    {
+        var data = await InnerTube.Instance.GetQueue(videoId, playlistId, @params);
+        if (data.Tracks.Count == 0) return;
+        var start = videoId == null ? 0 : Math.Max(0, data.Tracks.FindIndex(t => t.VideoId == videoId));
+        Queue = data.Tracks.ToList();
+        Index = start;
+        AutoStart = Queue.Count;
+        Radio = true;
+        ShowAutoplayToggle = false;
+        AutoChips = data.Chips;
+        QueueTitle = data.Title ?? title;
+        RelatedBrowseId = data.RelatedBrowseId;
+        ++_autoVersion;
+        AutoLoading = false;
+        QueueChanged?.Invoke();
+        await Load();
+    }
+
+    /// <summary>'현재 재생목록 닫기' — 재생을 멈추고 목록을 비운다 (재생 바도 사라진다)</summary>
+    public void CloseQueue()
+    {
+        _loadCts?.Cancel();
+        _mp.Pause();
+        _mp.Source = null;
+        Queue = new();
+        Index = -1;
+        AutoStart = 0;
+        AutoChips = new();
+        Radio = false;
+        ShowAutoplayToggle = false;
+        QueueTitle = null;
+        RelatedBrowseId = null;
+        ++_autoVersion;
+        Loading = false;
+        QueueChanged?.Invoke();
+        TrackChanged?.Invoke();
+        StateChanged?.Invoke();
     }
 
     /// <summary>목록에서 뺀다 (지금 곡은 못 뺌)</summary>

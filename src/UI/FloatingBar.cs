@@ -113,7 +113,7 @@ public sealed class FloatingBar : Grid
         mid.Children.Add(info);
         // 곡 이름 옆 ⋮ (pear 재생 바) — 곡 메뉴
         var more = new IconButton(40) { Content = Theme.Icon(Icons.More, 22, Colors.White), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        more.Click += () => { if (_p.Current is { } cur) TrackMenu.Show(more, cur); };
+        more.Click += () => { if (_p.Current is { } cur) TrackMenu.Show(more, cur, _p.Index, null, fromBar: true); };
         mid.Children.Add(more);
         mid.Children.Add(_lyric);
         Grid.SetColumn(mid, 1);
