@@ -344,6 +344,7 @@ public sealed class MainWindow : Window
     public void OpenPlayer()
     {
         PlayerPage.Open();
+        Bar.SetPlayerOpen(true);
         foreach (var el in new UIElement[] { _content, _nav, _rail })
         {
             Anim.Opacity(el, 0, 220);
@@ -355,6 +356,7 @@ public sealed class MainWindow : Window
     {
         if (!PlayerPage.IsOpen) return;
         PlayerPage.Close();
+        Bar.SetPlayerOpen(false);
         foreach (var el in new UIElement[] { _content, _nav, _rail })
         {
             Anim.Opacity(el, 1, 320);

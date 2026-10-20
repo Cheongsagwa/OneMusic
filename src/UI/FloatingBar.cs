@@ -21,12 +21,15 @@ public sealed class FloatingBar : Grid
     private readonly Border _lyric = new() { Height = 36, Width = 0, CornerRadius = new CornerRadius(18), Background = Theme.B(Theme.Chip), Margin = new Thickness(0) };
     private readonly Marquee _lyricText = new(14, FontWeights.Bold, Theme.OnSurface);
     private readonly Grid _playIcon = new();
-    private FrameworkElement _playGlyph, _pauseGlyph;
+    private readonly PlayPauseIcon _pp = new(28, Colors.Black);
+    private readonly VolumeIcon _vol = new(24, Colors.White);
+    private readonly RepeatIcon _rep = new(24, Colors.White);
+    private readonly ShuffleIcon _shuf = new(24, Colors.White);
+    private FrameworkElement _openGlyph = null!;
+    private RepeatMode? _lastRepeat;
     private readonly IconButton _volume = new(36), _repeat = new(36), _shuffle = new(36);
     private readonly Grid _volumeIcon = new();
-    private FrameworkElement _volWaves = null!, _volX = null!, _speaker = null!;
     private readonly Grid _repeatIcon = new();
-    private FrameworkElement _repeatOne = null!;
     private readonly MiniSlider _volSlider = new() { Width = 0, Opacity = 0 };
     private bool _lyricOpen;
     private bool _volHover;
@@ -62,22 +65,21 @@ public sealed class FloatingBar : Grid
 
         // ── 왼쪽 ──
         var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Spacing = 4 };
-        var prev = new IconButton(44) { Content = Theme.Icon(Icons.Previous, 24, Colors.White) };
-        prev.Click += () => { Bump(prev.Content, -6); _ = _p.Previous(); };
+        // 아이콘은 pear bar-icons.ts 처럼 모양이 이어지며 바뀐다 (BarIcons.cs)
+        var prevIcon = new SkipIcon(false, 24, Colors.White);
+        var prev = new IconButton(44) { Content = prevIcon };
+        prev.Click += () => { prevIcon.Swap(); _ = _p.Previous(); };
         var play = new IconButton(52);
         play.HoverBrush = Theme.B(Colors.Transparent);
         var circle = new XEllipse { Fill = Theme.B(Colors.White), Width = 52, Height = 52 };
-        _playGlyph = Theme.Icon(Icons.Play, 26, Colors.Black);
-        _pauseGlyph = Theme.Icon(Icons.Pause, 26, Colors.Black);
         _playIcon.Children.Add(circle);
-        _playIcon.Children.Add(_playGlyph);
-        _playIcon.Children.Add(_pauseGlyph);
-        Anim.V(_pauseGlyph).Opacity = 0;
+        _playIcon.Children.Add(_pp);
         play.Content = _playIcon;
         play.Margin = new Thickness(4, 0, 4, 0);
         play.Click += () => _p.TogglePlay();
-        var next = new IconButton(44) { Content = Theme.Icon(Icons.Next, 24, Colors.White) };
-        next.Click += () => { Bump(next.Content, 6); _ = _p.Next(); };
+        var nextIcon = new SkipIcon(true, 24, Colors.White);
+        var next = new IconButton(44) { Content = nextIcon };
+        next.Click += () => { nextIcon.Swap(); _ = _p.Next(); };
         _time.Width = 108;
         _time.Margin = new Thickness(12, 0, 0, 0);
         _time.VerticalAlignment = VerticalAlignment.Center;
@@ -128,12 +130,7 @@ public sealed class FloatingBar : Grid
         _volSlider.VerticalAlignment = VerticalAlignment.Center;
         _volSlider.Value = _p.Volume;
         _volSlider.ValueChanged += v => _p.Volume = v;
-        _speaker = Theme.Icon(Icons.Speaker, 24, Colors.White);
-        _volWaves = Theme.Icon(Icons.Waves, 24, Colors.White, stroke: true, strokeWidth: 2);
-        _volX = Theme.Icon(Icons.MuteX, 24, Colors.White, stroke: true, strokeWidth: 2);
-        _volumeIcon.Children.Add(_speaker);
-        _volumeIcon.Children.Add(_volWaves);
-        _volumeIcon.Children.Add(_volX);
+        _volumeIcon.Children.Add(_vol);
         _volume.Content = _volumeIcon;
         _volume.Click += () => _p.Muted = !_p.Muted;
         // 볼륨: 스피커 아이콘이나 슬라이더 위에 있을 때만 펼친다 (사이 틈에서 닫히지 않게 조금 기다림)
@@ -142,30 +139,31 @@ public sealed class FloatingBar : Grid
             el.PointerEntered += (_, _) => SetVolumeOpen(true);
             el.PointerExited += (_, _) => SetVolumeOpen(false);
         }
-        _repeatIcon.Children.Add(Theme.Icon(Icons.Repeat, 24, Colors.White, stroke: true, strokeWidth: 2));
-        _repeatOne = Theme.Icon(Icons.RepeatOne, 24, Colors.White, stroke: true, strokeWidth: 2);
-        _repeatIcon.Children.Add(_repeatOne);
+        _repeatIcon.Children.Add(_rep);
         _repeat.Content = _repeatIcon;
-        _repeat.Click += () =>
-        {
-            _p.CycleRepeat();
-            Spin(_repeatIcon);
-        };
-        _shuffle.Content = Theme.Icon(Icons.Shuffle, 24, Colors.White, stroke: true, strokeWidth: 2);
-        Anim.V(_shuffle.Content!).Opacity = 0.55f;
+        _repeat.Click += () => _p.CycleRepeat();
+        _shuffle.Content = _shuf;
+        Anim.V(_shuf).Opacity = 0.55f;
+        // 섞는 동안만 밝게 (pear: '한 번 섞기' 라서 켜짐 상태가 없다)
+        _shuf.ActiveChanged += on => Anim.Opacity(_shuf, on ? 1 : 0.55f, on ? Anim.Fast : Anim.Medium);
         _shuffle.Click += () =>
         {
             _p.Shuffle();
-            Anim.Opacity(_shuffle.Content!, 1, 120);
-            Anim.Opacity(_shuffle.Content!, 0.55f, 500, 700);
-            Bump(_shuffle.Content, 5);
+            _shuf.Run();
         };
+        ToolTipService.SetToolTip(_shuffle, "셔플");
+        ToolTipService.SetToolTip(_repeat, "반복");
+        ToolTipService.SetToolTip(_volume, "음소거");
+        ToolTipService.SetToolTip(prev, "이전");
+        ToolTipService.SetToolTip(next, "다음");
         var open = new IconButton(36);
         open.HoverBrush = Theme.B(Colors.Transparent);
         var openGrid = new Grid();
         openGrid.Children.Add(new XEllipse { Fill = Theme.B(Colors.White), Width = 36, Height = 36 });
-        openGrid.Children.Add(Theme.Icon(Icons.ChevronUp, 20, Colors.Black, stroke: true, strokeWidth: 2.2));
+        _openGlyph = Theme.Icon(Icons.ChevronUp, 20, Colors.Black, stroke: true, strokeWidth: 2.2);
+        openGrid.Children.Add(_openGlyph);
         open.Content = openGrid;
+        ToolTipService.SetToolTip(open, "재생 화면 열기");
         open.Click += () => OpenPlayer?.Invoke();
         right.Children.Add(_volSlider);
         right.Children.Add(_volume);
@@ -192,6 +190,18 @@ public sealed class FloatingBar : Grid
 
     public void SetAccent(Color c) => _wave.Color = c;
 
+    /// <summary>재생 화면이 열리면 열기 버튼의 화살표가 부드럽게 180° 돈다 (pear 27)</summary>
+    public void SetPlayerOpen(bool open)
+    {
+        var v = Anim.V(_openGlyph);
+        v.CenterPoint = new Vector3((float)_openGlyph.ActualWidth / 2, (float)_openGlyph.ActualHeight / 2, 0);
+        var c = v.Compositor;
+        var a = c.CreateScalarKeyFrameAnimation();
+        a.InsertKeyFrame(1f, open ? 180f : 0f, Anim.Smooth(c));
+        a.Duration = TimeSpan.FromMilliseconds(Anim.Medium);
+        v.StartAnimation("RotationAngleInDegrees", a);
+    }
+
     private void OnTrack()
     {
         var t = _p.Current;
@@ -216,21 +226,15 @@ public sealed class FloatingBar : Grid
         var playing = _p.IsPlaying || (_p.IsBuffering && _wasPlaying);
         if (playing == _wasPlaying) return;
         _wasPlaying = playing;
-        // 재생 ↔ 일시정지: 아이콘이 돌며 바뀐다
-        var show = playing ? _pauseGlyph : _playGlyph;
-        var hide = playing ? _playGlyph : _pauseGlyph;
-        Anim.Opacity(hide, 0, 160);
-        Anim.Scale(hide, 0.6f, 0.8f, 40);
-        Anim.Opacity(show, 1, 220);
-        Anim.V(show).Scale = new Vector3(0.6f, 0.6f, 1);
-        Anim.Scale(show, 1f, 0.55f, 45);
+        // 재생 ↔ 일시정지: 막대 둘이 합쳐지며 삼각형이 되고, 삼각형이 갈라지며 막대가 된다
+        _pp.Set(playing);
     }
 
     private void OnVolume()
     {
         var muted = _p.Muted;
-        Anim.Opacity(_volWaves, muted ? 0 : 1, 220);
-        Anim.Opacity(_volX, muted ? 1 : 0, 220);
+        _vol.Set(muted);
+        // 꺼짐 · 음소거는 회색(흐리게), 켜짐은 흰색
         Anim.Opacity(_volumeIcon, muted ? 0.55f : 1f, 240);
         if (!_volSlider.Dragging) _volSlider.Value = _p.Volume;
     }
@@ -239,7 +243,10 @@ public sealed class FloatingBar : Grid
     {
         var mode = _p.Repeat;
         Anim.Opacity(_repeatIcon, mode == RepeatMode.Off ? 0.55f : 1f, 240);
-        Anim.Opacity(_repeatOne, mode == RepeatMode.One ? 1 : 0, 220);
+        // 모드가 바뀌면 화살표가 둘레를 한 바퀴 돌고, 한 곡 반복이면 가운데 1
+        if (_lastRepeat != null && _lastRepeat != mode) _rep.Spin();
+        _rep.SetOne(mode == RepeatMode.One, _lastRepeat != null);
+        _lastRepeat = mode;
     }
 
     private void SetVolumeOpen(bool open)
@@ -282,27 +289,6 @@ public sealed class FloatingBar : Grid
         Storyboard.SetTargetProperty(o, "Opacity");
         sb.Children.Add(o);
         sb.Begin();
-    }
-
-    private static void Bump(UIElement? el, float dx)
-    {
-        if (el == null) return;
-        Anim.SetTranslation(el, new Vector3(dx, 0, 0));
-        Anim.V(el).Scale = new Vector3(0.7f, 0.7f, 1);
-        Anim.Translate(el, Vector3.Zero, 0.6f, 50);
-        Anim.Scale(el, 1f, 0.55f, 45);
-    }
-
-    private static void Spin(UIElement el)
-    {
-        var v = Anim.V(el);
-        var s = el.ActualSize;
-        v.CenterPoint = new Vector3(s.X / 2, s.Y / 2, 0);
-        var a = v.Compositor.CreateScalarKeyFrameAnimation();
-        a.InsertKeyFrame(0f, 0f);
-        a.InsertKeyFrame(1f, 360f, Anim.Smooth(v.Compositor));
-        a.Duration = TimeSpan.FromMilliseconds(620);
-        v.StartAnimation("RotationAngleInDegrees", a);
     }
 
     private void Tick()
