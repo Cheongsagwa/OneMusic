@@ -48,11 +48,19 @@ public static class Play
 /// <summary>세로로 스크롤하는 화면의 공통 틀 — 스크롤바 숨김, 위 · 아래 끝 그라데이션 (pear 테마: 위 44 · 아래 56)</summary>
 public class ScrollPage : Grid
 {
+    /// <summary>화면은 창 맨 위부터 그려지고, 이만큼 밑에서 내용이 시작한다 (창 끌기 32 + 상단 바 90)</summary>
+    public const double TopInset = 122;
+
     protected readonly ScrollViewer Scroller = new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         HorizontalScrollMode = ScrollMode.Disabled,
+        Padding = new Thickness(0, TopInset, 0, 0),
     };
+
+    /// <summary>스크롤되어 있는지 바뀌면 (상단 바 유리를 켜고 끈다)</summary>
+    public static event Action<ScrollPage, bool>? ScrolledChanged;
+    public bool IsScrolled => _topShown;
     protected readonly StackPanel Body = new();
     private readonly WashFade _fadeTop, _fadeBottom;
     private bool _topShown, _bottomShown = true;
@@ -78,13 +86,19 @@ public class ScrollPage : Grid
     {
         Height = top ? 44 : Theme.BarHeight + Theme.FloatGap * 2 + 40,
         VerticalAlignment = top ? VerticalAlignment.Top : VerticalAlignment.Bottom,
+        Margin = new Thickness(0, top ? TopInset : 0, 0, 0),
     };
 
     private void UpdateFades()
     {
         var top = Scroller.VerticalOffset > 1;
         var bottom = Scroller.VerticalOffset < Scroller.ScrollableHeight - 1;
-        if (top != _topShown) { _topShown = top; Anim.Opacity(_fadeTop, top ? 1 : 0, 300); }
+        if (top != _topShown)
+        {
+            _topShown = top;
+            Anim.Opacity(_fadeTop, top ? 1 : 0, 300);
+            ScrolledChanged?.Invoke(this, top);
+        }
         if (bottom != _bottomShown) { _bottomShown = bottom; Anim.Opacity(_fadeBottom, bottom ? 1 : 0, 300); }
     }
 
@@ -460,7 +474,7 @@ public sealed class ShelvesView : ScrollPage
                 var col = new StackPanel { Spacing = 16 };
                 foreach (var c in s.Items.Skip(i).Take(2))
                 {
-                    var card = new CardView(c, 164, square: true, fixedHeight: true);
+                    var card = new CardView(c, 164, square: true, fixedHeight: true, playButton: false);
                     card.Click += cc => Play.Card(cc, s);
                     col.Children.Add(card);
                 }

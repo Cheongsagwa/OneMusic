@@ -200,7 +200,8 @@ public sealed class CardView : StackPanel
 
     /// <param name="square">16:9 아트도 가운데를 잘라 정사각으로 (격자가 흐트러지지 않게)</param>
     /// <param name="fixedHeight">제목 · 부제목 두 줄씩 자리를 늘 비워 둬서 아래 줄 카드 위치가 같게</param>
-    public CardView(Card c, double size = 164, bool square = false, bool fixedHeight = false, bool round = false)
+    /// <param name="playButton">마우스를 올리면 오른쪽 아래 재생 버튼 (다시 듣기 2행은 pear 57 처럼 없음)</param>
+    public CardView(Card c, double size = 164, bool square = false, bool fixedHeight = false, bool round = false, bool playButton = true)
     {
         Card = c;
         var w = c.Wide && !square ? size * 16 / 9 : size;
@@ -224,7 +225,36 @@ public sealed class CardView : StackPanel
         };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
-        art.Child = img;
+        // 마우스를 올리면: 위쪽만 어둡게(0.55 → 0, 45%) + 오른쪽 위 ⋮ + 오른쪽 아래 재생 (YT Music 카드 · pear 57)
+        var artGrid = new Grid();
+        artGrid.Children.Add(img);
+        var shade = new XRect { IsHitTestVisible = false };
+        var grad = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+        grad.GradientStops.Add(new GradientStop { Color = Color.FromArgb(140, 0, 0, 0), Offset = 0 });
+        grad.GradientStops.Add(new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.45 });
+        shade.Fill = grad;
+        Anim.V(shade).Opacity = 0;
+        artGrid.Children.Add(shade);
+        var more = new IconButton(36) { Content = Theme.Icon(Icons.More, 22, Colors.White), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 6, 4, 0) };
+        more.Click += () => TrackMenu.ShowCard(more, c, more.TransformToVisual(null).TransformPoint(new Point(-220, 36)));
+        Anim.V(more).Opacity = 0;
+        more.IsHitTestVisible = false;
+        artGrid.Children.Add(more);
+        IconButton? play = null;
+        if (playButton && !round)
+        {
+            play = new IconButton(40) { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 10, 10) };
+            var pg = new Grid();
+            pg.Children.Add(new XEllipse { Width = 40, Height = 40, Fill = Theme.B(Color.FromArgb(150, 0, 0, 0)) });
+            pg.Children.Add(Theme.Icon(Icons.Play, 20, Colors.White));
+            play.Content = pg;
+            play.HoverBrush = new SolidColorBrush(Colors.Transparent);
+            play.Click += () => Play.Card(c with { PageType = "play" });
+            Anim.V(play).Opacity = 0;
+            play.IsHitTestVisible = false;
+            artGrid.Children.Add(play);
+        }
+        art.Child = artGrid;
         Children.Add(art);
         var title = Theme.Text(c.Title, 14, FontWeights.Bold, Theme.OnSurface, 2);
         Children.Add(title);
@@ -234,8 +264,23 @@ public sealed class CardView : StackPanel
             sub.Margin = new Thickness(0, -6, 0, 0);
             Children.Add(sub);
         }
-        PointerEntered += (_, _) => Anim.Scale(img, 1.05f, 0.8f, 60);
-        PointerExited += (_, _) => Anim.Scale(img, 1f, 0.8f, 60);
+        // pear 40: 아트 1.04 (morph 560ms ease)
+        PointerEntered += (_, _) =>
+        {
+            Anim.ScaleTo(img, 1.04f, Anim.Morph, Anim.Ease);
+            Anim.Opacity(shade, 1, Anim.Medium);
+            Anim.Opacity(more, 1, Anim.Fast);
+            more.IsHitTestVisible = true;
+            if (play != null) { Anim.Opacity(play, 1, Anim.Fast); play.IsHitTestVisible = true; }
+        };
+        PointerExited += (_, _) =>
+        {
+            Anim.ScaleTo(img, 1f, Anim.Morph, Anim.Ease);
+            Anim.Opacity(shade, 0, Anim.Medium);
+            Anim.Opacity(more, 0, Anim.Fast);
+            more.IsHitTestVisible = false;
+            if (play != null) { Anim.Opacity(play, 0, Anim.Fast); play.IsHitTestVisible = false; }
+        };
         img.SizeChanged += (_, _) => Anim.V(img).CenterPoint = new Vector3((float)img.ActualWidth / 2, (float)img.ActualHeight / 2, 0);
         Anim.Pressable(art);
         Tapped += (_, _) => Click?.Invoke(c);
@@ -277,7 +322,7 @@ public static class Toast
         if (_box == null || _text == null) return;
         var g = ++_gen;
         _text.Text = message;
-        Anim.Pop(_box);
+        Anim.RiseSpring(_box);
         await Task.Delay(2600);
         if (g == _gen) Anim.Opacity(_box, 0, Anim.Fast);
     }

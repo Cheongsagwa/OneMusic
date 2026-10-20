@@ -88,8 +88,8 @@ public sealed class AvToggle : Grid
 /// <summary>왼쪽 72px 레일 — 홈 · 둘러보기 · 보관함 (선택되면 채워진 아이콘 + 반투명 알약)</summary>
 public sealed class NavRail : StackPanel
 {
-    private readonly List<(Border Box, Grid IconHost, (string, bool)[] Outline, (string, bool)[] Filled)> _items = new();
-    public int Selected { get; private set; }
+    private readonly List<(Border Pill, FrameworkElement Outline, FrameworkElement Filled, TextBlock Label)> _items = new();
+    public int Selected { get; private set; } = -1;
     public event Action<int>? Changed;
 
     public NavRail()
@@ -106,33 +106,48 @@ public sealed class NavRail : StackPanel
     private void Add(string label, (string, bool)[] outline, (string, bool)[] filled)
     {
         var idx = _items.Count;
-        var box = new Border { Width = 56, Height = 65, CornerRadius = new CornerRadius(23), Background = new SolidColorBrush(Colors.Transparent) };
-        var g = new Grid();
+        var box = new Grid { Width = 56, Height = 65, Background = new SolidColorBrush(Colors.Transparent) };
+        // 선택 알약 · hover 는 투명도로 부드럽게 (pear 7: background medium ease)
+        var hover = new Border { CornerRadius = new CornerRadius(23), Background = Theme.B(Color.FromArgb(15, 255, 255, 255)) };
+        Anim.V(hover).Opacity = 0;
+        var pill = new Border { CornerRadius = new CornerRadius(23), Background = Theme.B(Color.FromArgb(128, 80, 80, 84)) };
+        Anim.V(pill).Opacity = 0;
+        box.Children.Add(hover);
+        box.Children.Add(pill);
         var iconHost = new Grid { Width = 24, Height = 24, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 12, 0, 0) };
-        g.Children.Add(iconHost);
-        var t = Theme.Text(label, 10, FontWeights.ExtraBold, Theme.OnSurface);
+        var o = Theme.Icon(24, Colors.White, outline);
+        var f = Theme.Icon(24, Colors.White, filled);
+        Anim.V(f).Opacity = 0;
+        iconHost.Children.Add(o);
+        iconHost.Children.Add(f);
+        box.Children.Add(iconHost);
+        var t = Theme.Text(label, 10, FontWeights.SemiBold, Theme.OnSurface);
         t.HorizontalAlignment = HorizontalAlignment.Center;
         t.VerticalAlignment = VerticalAlignment.Top;
         t.Margin = new Thickness(0, 40, 0, 0);
-        g.Children.Add(t);
-        box.Child = g;
+        box.Children.Add(t);
         box.Tapped += (_, _) => Select(idx);
-        box.PointerEntered += (_, _) => { if (Selected != idx) box.Background = Theme.B(Color.FromArgb(15, 255, 255, 255)); };
-        box.PointerExited += (_, _) => { if (Selected != idx) box.Background = new SolidColorBrush(Colors.Transparent); };
+        box.PointerEntered += (_, _) => Anim.Opacity(hover, Selected != idx ? 1 : 0, Anim.Medium);
+        box.PointerExited += (_, _) => Anim.Opacity(hover, 0, Anim.Medium);
         Anim.Pressable(box);
-        _items.Add((box, iconHost, outline, filled));
+        _items.Add((pill, o, f, t));
         Children.Add(box);
     }
 
     public void Select(int idx, bool notify = true)
     {
+        var changed = idx != Selected;
         Selected = idx;
         for (var i = 0; i < _items.Count; i++)
         {
-            var (box, host, outline, filled) = _items[i];
-            box.Background = i == idx ? Theme.B(Color.FromArgb(128, 80, 80, 84)) : new SolidColorBrush(Colors.Transparent);
-            host.Children.Clear();
-            host.Children.Add(Theme.Icon(24, Colors.White, i == idx ? filled : outline));
+            var (pill, o, f, t) = _items[i];
+            var on = i == idx;
+            Anim.Opacity(pill, on ? 1 : 0, Anim.Medium);
+            // 아이콘: 선 → 채움 으로 바뀌며 살짝 튕긴다
+            Anim.Opacity(o, on ? 0 : 1, Anim.Fast);
+            Anim.Opacity(f, on ? 1 : 0, Anim.Fast);
+            if (on && changed) { Anim.V(f).Scale = new Vector3(0.8f, 0.8f, 1); Anim.Scale(f, 1f); }
+            t.FontWeight = on ? FontWeights.ExtraBold : FontWeights.SemiBold;
         }
         if (notify) Changed?.Invoke(idx);
     }

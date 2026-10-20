@@ -36,6 +36,15 @@ public static class Theme
         FallbackColor = (tint ?? GlassTint).WithAlpha(0.92),
     };
 
+    /// <summary>흰빛 유리 (검색창 · 버튼 — pear button-glass: 흰 12% + 블러)</summary>
+    public static Brush GlassLight(double whiteOpacity) => new AcrylicBrush
+    {
+        TintColor = Colors.White,
+        TintOpacity = whiteOpacity * 0.6,
+        TintLuminosityOpacity = whiteOpacity,
+        FallbackColor = Colors.White.WithAlpha(whiteOpacity),
+    };
+
     public static TextBlock Text(string text, double size, FontWeight weight, Color color, int maxLines = 1) => new()
     {
         Text = text,

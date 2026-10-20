@@ -168,7 +168,10 @@ public sealed class OneMenu
         layer.Children.Add(_dismiss);
         layer.Children.Add(_box);
         Open.Add(this);
-        Anim.Pop(_box);
+        // pear: 메뉴는 오른쪽 위를 기준으로 튀어나온다 (위로 열리면 오른쪽 아래)
+        var openedUp = pos == null && y + h < (at.TransformToVisual(null).TransformPoint(new Point(0, 0)).Y);
+        _box.Measure(new Size(w, double.PositiveInfinity));
+        Anim.Pop(_box, 0, new Vector2(1, openedUp ? 1 : 0));
     }
 
     /// <summary>메뉴가 창보다 길면 안쪽을 스크롤 (pear: max-height calc(100vh - 160px))</summary>

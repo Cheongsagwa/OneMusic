@@ -15,6 +15,8 @@ public sealed class Settings
     public bool Notifications { get; set; } = true;
     /// <summary>앱을 다시 켜면 듣던 곡 · 위치 그대로</summary>
     public bool ResumeSession { get; set; } = true;
+    /// <summary>사이드바(≡)를 펼쳐 둘지</summary>
+    public bool GuideOpen { get; set; }
     public int WindowWidth { get; set; } = 1440;
     public int WindowHeight { get; set; } = 920;
 

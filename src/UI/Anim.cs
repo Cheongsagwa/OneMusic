@@ -148,11 +148,48 @@ public static class Anim
         v.StartAnimation("Translation", t);
     }
 
-    /// <summary>나타날 때 — pear 의 oneui-pop: 0.92 에서 커지며 (메뉴 · 팝업)</summary>
-    public static void Pop(UIElement el, int delayMs = 0)
+    /// <summary>크기를 pear 곡선으로 (카드 아트 hover 1.04 — morph 560ms ease)</summary>
+    public static void ScaleTo(UIElement el, float to, int ms, float[] curve)
     {
         var v = V(el);
         Center(el, v);
+        v.StartAnimation("Scale", Vec(v.Compositor, new Vector3(to, to, 1), curve, ms, 0));
+    }
+
+    /// <summary>pear oneui-drop: 6px 위 · 0.97 에서 내려앉으며 (검색 추천 줄)</summary>
+    public static void Drop(UIElement el, int delayMs = 0)
+    {
+        var v = V(el);
+        Center(el, v);
+        v.Opacity = 0;
+        v.Scale = new Vector3(0.97f, 0.97f, 1);
+        SetTranslation(el, new Vector3(0, -6, 0));
+        v.StartAnimation("Opacity", Scalar(v.Compositor, 1, Ease, Medium, delayMs));
+        v.StartAnimation("Scale", Vec(v.Compositor, Vector3.One, Ease, Medium, delayMs));
+        v.StartAnimation("Translation", Vec(v.Compositor, Vector3.Zero, Ease, Medium, delayMs));
+    }
+
+    /// <summary>pear 토스트: oneui-rise 를 morph 560ms 스프링으로</summary>
+    public static void RiseSpring(UIElement el)
+    {
+        var v = V(el);
+        v.Opacity = 0;
+        SetTranslation(el, new Vector3(0, 14, 0));
+        v.StartAnimation("Opacity", Scalar(v.Compositor, 1, SmoothCurve, Medium, 0));
+        v.StartAnimation("Translation", Vec(v.Compositor, Vector3.Zero, Spring, Morph, 0));
+    }
+
+    /// <summary>나타날 때 — pear 의 oneui-pop: 0.92 에서 커지며 (메뉴 · 팝업). origin 은 커지는 기준점(0~1)</summary>
+    public static void Pop(UIElement el, int delayMs = 0, Vector2? origin = null)
+    {
+        var v = V(el);
+        Center(el, v);
+        if (origin is { } o)
+        {
+            var s = el.ActualSize;
+            if (s.X <= 0 && el is FrameworkElement fe) s = new Vector2((float)fe.DesiredSize.Width, (float)fe.DesiredSize.Height);
+            v.CenterPoint = new Vector3(s.X * o.X, s.Y * o.Y, 0);
+        }
         v.Opacity = 0;
         v.Scale = new Vector3(0.92f, 0.92f, 1);
         v.StartAnimation("Opacity", Scalar(v.Compositor, 1, SmoothCurve, Medium, delayMs));

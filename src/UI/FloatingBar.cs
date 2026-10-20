@@ -208,6 +208,14 @@ public sealed class FloatingBar : Grid
     private void OnTrack()
     {
         var t = _p.Current;
+        if (_title.Text != (t?.Title ?? "재생 중인 곡 없음"))
+        {
+            // pear 40: 곡명 · 가수는 바뀔 때 440ms 로 페이드인
+            Anim.V(_title).Opacity = 0;
+            Anim.V(_artist).Opacity = 0;
+            Anim.Opacity(_title, 1, Anim.Medium);
+            Anim.Opacity(_artist, 1, Anim.Medium, 40);
+        }
         _title.Text = t?.Title ?? "재생 중인 곡 없음";
         _artist.Text = t?.Artist ?? "";
         // 이전 아트를 받침에 깔아 두고, 새 아트를 다 불러오면 가운데부터 번지듯 드러낸다 (ArtView)
@@ -293,7 +301,8 @@ public sealed class FloatingBar : Grid
 
         // 가사 한 줄
         var lines = LyricsState.Instance.Lines;
-        var has = lines != null && lines.Count > 0;
+        // 시간 정보가 있는 가사일 때만 (pear: 없으면 아무것도 띄우지 않는다)
+        var has = lines != null && lines.Count > 0 && LyricsState.Instance.Synced;
         if (has != _lyricOpen)
         {
             _lyricOpen = has;

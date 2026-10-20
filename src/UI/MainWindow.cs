@@ -24,6 +24,11 @@ public sealed class MainWindow : Window
     private readonly List<DetailView> _details = new();
     private FrameworkElement? _underDetails;
     private readonly Grid _wash = new() { IsHitTestVisible = false };
+    private readonly Grid _playerWash = new() { IsHitTestVisible = false };
+    private Border _navGlass = null!;
+    private Grid _guide = null!;
+    private Grid _layoutGrid = null!;
+    private bool _navGlassOn;
     private IconButton _backBtn = null!, _fwdBtn = null!, _account = null!;
     /// <summary>뒤로 간 상세 화면들 (앞으로 가기용)</summary>
     private readonly List<(string Id, string? Params)> _forward = new();
@@ -71,6 +76,9 @@ public sealed class MainWindow : Window
         WashFade.Source = _wash;
         Root.RequestedTheme = ElementTheme.Dark;
         Root.Children.Add(_wash);
+        // 재생 화면: 앨범 색을 더 진하게 (pear 22 — 900×700 at 30% 45%, 50%)
+        Root.Children.Add(_playerWash);
+        Anim.V(_playerWash).Opacity = 0;
         Root.SizeChanged += (_, _) => SetWash(_accent, false);
 
         var layout = new Grid();
@@ -132,9 +140,31 @@ public sealed class MainWindow : Window
         Library = new ShelvesView("FEmusic_library_landing", withChips: true) { Visibility = Visibility.Collapsed };
         Search = new SearchView { Visibility = Visibility.Collapsed };
         foreach (var v in new FrameworkElement[] { Home, Explore, Library, Search }) _content.Children.Add(v);
-        Grid.SetRow(_content, 2);
+        // 화면은 창 맨 위부터 — 위 122px(창 끌기 + 상단 바) 밑으로 흘러 들어가며 유리 상단 바 뒤로 흐리게 비친다 (pear 6 · 22)
+        Grid.SetRow(_content, 0);
+        Grid.SetRowSpan(_content, 3);
         Grid.SetColumn(_content, 1);
+        Canvas.SetZIndex(_content, 0);
         layout.Children.Add(_content);
+        // 상단 바 유리 — 내용이 스크롤되면 나타난다 (YT: nav-bar-background, opacity medium ease)
+        _navGlass = new Border { Background = Theme.Glass(0.55, Color.FromArgb(255, 36, 36, 40)), IsHitTestVisible = false };
+        Grid.SetRowSpan(_navGlass, 2);
+        Grid.SetColumnSpan(_navGlass, 2);
+        Canvas.SetZIndex(_navGlass, 1);
+        Anim.V(_navGlass).Opacity = 0;
+        layout.Children.Add(_navGlass);
+        Canvas.SetZIndex(drag, 2);
+        Canvas.SetZIndex(_nav, 3);
+        Canvas.SetZIndex(_rail, 3);
+        ScrollPage.ScrolledChanged += (page, scrolled) => { if (page.Visibility == Visibility.Visible) SetNavGlass(scrolled); };
+        // 펼친 사이드바 (≡)
+        _guide = BuildGuide();
+        Grid.SetRow(_guide, 2);
+        Grid.SetColumnSpan(_guide, 2);
+        Canvas.SetZIndex(_guide, 4);
+        layout.Children.Add(_guide);
+        menu.Click += ToggleGuide;
+        _layoutGrid = layout;
 
         // 재생 화면 (상단 바 · 레일까지 덮음)
         PlayerPage = new PlayerView();
@@ -142,6 +172,7 @@ public sealed class MainWindow : Window
         Grid.SetRow(PlayerPage, 1);
         Grid.SetRowSpan(PlayerPage, 2);
         Grid.SetColumnSpan(PlayerPage, 2);
+        Canvas.SetZIndex(PlayerPage, 5);
         layout.Children.Add(PlayerPage);
 
         // 떠 있는 재생 바
@@ -153,6 +184,8 @@ public sealed class MainWindow : Window
         Bar.OpenPlayer += TogglePlayer;
         Root.Children.Add(Bar);
         Toast.Attach(Root);
+        _drop = new SearchDropdown(Root);
+        _drop.Chosen += Suggest;
         Tip.Attach(Root);
         OneMenu.Attach(Root);
 
@@ -160,6 +193,7 @@ public sealed class MainWindow : Window
         Root.Loaded += (_, _) =>
         {
             Home.LoadOnce();
+            if (Settings.Current.GuideOpen) ToggleGuide();
             // 이어 듣기: 지난번 목록 · 위치 (멈춘 채로)
             if (Settings.Current.ResumeSession && SessionState.Load() is { } session) Player.Restore(session);
             if (Player.Current == null) ShowBar(false);
@@ -191,7 +225,8 @@ public sealed class MainWindow : Window
             Width = 480,
             Height = 40,
             CornerRadius = new CornerRadius(20),
-            Background = Theme.B(Color.FromArgb(31, 255, 255, 255)),
+            // pear 22: 검색창은 흰 12% 유리 알약 (뒤가 흐리게)
+            Background = Theme.GlassLight(0.12),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(172, 0, 0, 0),
@@ -235,16 +270,27 @@ public sealed class MainWindow : Window
         _search.UpdateTextOnSelect = false;
         _search.QuerySubmitted += (box, e) =>
         {
-            if (e.ChosenSuggestion is FrameworkElement { Tag: SearchItem it })
-            {
-                if (it.Track is { } t) _ = Player.PlaySong(t, fromSearch: true);
-                else if (it.BrowseId != null) OpenBrowse(it.BrowseId);
-                return;
-            }
-            var q = (e.ChosenSuggestion as FrameworkElement)?.Tag as string ?? e.QueryText;
-            if (!string.IsNullOrWhiteSpace(q)) ShowSearch(q.Trim());
+            // ↑↓ 로 고른 추천이 있으면 그것, 아니면 입력한 글자로 검색
+            var chosen = _drop?.Selected;
+            _drop?.Hide();
+            if (chosen != null) { Suggest(chosen); return; }
+            if (!string.IsNullOrWhiteSpace(e.QueryText)) ShowSearch(e.QueryText.Trim());
         };
+        _search.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
+        {
+            if (_drop == null) return;
+            if (e.Key == Windows.System.VirtualKey.Down) { _drop.Move(1); e.Handled = true; }
+            else if (e.Key == Windows.System.VirtualKey.Up) { _drop.Move(-1); e.Handled = true; }
+            else if (e.Key == Windows.System.VirtualKey.Escape && _drop.IsOpen) { _drop.Hide(); e.Handled = true; }
+        }), true);
+        _search.LostFocus += async (_, _) =>
+        {
+            await Task.Delay(180);
+            if (_drop is { PointerInside: false }) _drop.Hide();
+        };
+        _search.GotFocus += (_, _) => { if (_search.Text.Trim().Length > 0) OnSearchText(_search, null); };
         pill.Children.Add(_search);
+        _searchPill = pill;
         return pill;
     }
 
@@ -261,9 +307,162 @@ public sealed class MainWindow : Window
             views[k].Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
         views[i].LoadOnce();
+        SyncNavGlass();
     }
 
     public void ShowHome() => _rail.Select(0);
+
+    // ───────────────────────── 펼친 사이드바 (≡) ─────────────────────────
+
+    private bool _guideOpen;
+    private readonly List<(Border Pill, TextBlock Label)> _guideItems = new();
+    private readonly StackPanel _guideLists = new() { Spacing = 2 };
+
+    /// <summary>
+    /// ≡ 를 누르면 펼쳐지는 사이드바 (YT Music guide) — 홈 · 둘러보기 · 보관함 + 새 재생목록 + 내 재생목록들.
+    /// 미끄러지며 나타나고 사라진다 (pear 39: transform medium ease · opacity), 화면은 옆으로 비켜 간다
+    /// </summary>
+    private Grid BuildGuide()
+    {
+        var g = new Grid { Width = 240, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Background = new SolidColorBrush(Colors.Transparent) };
+        var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Padding = new Thickness(8, 16, 8, Theme.BarHeight + Theme.FloatGap * 2) };
+        var stack = new StackPanel { Spacing = 2 };
+        var entries = new[] { ("홈", Icons.HomeOutline, Icons.HomeFilled), ("둘러보기", Icons.ExploreOutline, Icons.ExploreFilled), ("보관함", Icons.LibraryOutline, Icons.LibraryFilled) };
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var idx = i;
+            var (label, outline, filled) = entries[i];
+            var row = new Grid { Height = 48, Background = new SolidColorBrush(Colors.Transparent) };
+            var pill = new Border { CornerRadius = new CornerRadius(23), Background = Theme.B(Color.FromArgb(128, 80, 80, 84)) };
+            Anim.V(pill).Opacity = 0;
+            row.Children.Add(pill);
+            var hover = new Border { CornerRadius = new CornerRadius(23), Background = Theme.B(Color.FromArgb(15, 255, 255, 255)) };
+            Anim.V(hover).Opacity = 0;
+            row.Children.Add(hover);
+            var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 20, Margin = new Thickness(18, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            line.Children.Add(Theme.Icon(24, Colors.White, idx == 0 ? filled : outline));
+            var t = Theme.Text(label, 16, FontWeights.SemiBold, Theme.OnSurface);
+            t.VerticalAlignment = VerticalAlignment.Center;
+            line.Children.Add(t);
+            row.Children.Add(line);
+            row.PointerEntered += (_, _) => Anim.Opacity(hover, 1, Anim.Medium);
+            row.PointerExited += (_, _) => Anim.Opacity(hover, 0, Anim.Medium);
+            row.Tapped += (_, _) => _rail.Select(idx);
+            Anim.Pressable(row, 0.96f);
+            _guideItems.Add((pill, t));
+            stack.Children.Add(row);
+        }
+        stack.Children.Add(new XRect { Height = 1, Fill = Theme.B(Theme.Divider), Margin = new Thickness(12, 14, 12, 14) });
+        // 새 재생목록 (흰 테두리 알약)
+        var add = new Border
+        {
+            Height = 40,
+            CornerRadius = new CornerRadius(20),
+            Background = Theme.GlassLight(0.12),
+            Margin = new Thickness(8, 0, 8, 12),
+        };
+        var addRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        addRow.Children.Add(Theme.Icon(Icons.QueueAdd, 20, Colors.White, stroke: true));
+        addRow.Children.Add(Theme.Text("새 재생목록", 14, FontWeights.SemiBold, Theme.OnSurface));
+        add.Child = addRow;
+        Anim.Pressable(add);
+        add.Tapped += async (_, _) =>
+        {
+            var name = await Prompt.Ask(Root.XamlRoot, "새 재생목록", "재생목록 이름");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var id = await InnerTube.Instance.CreatePlaylist(name.Trim(), Array.Empty<string>());
+            Toast.Show(id != null ? $"'{name.Trim()}' 재생목록을 만들었어요" : "만들지 못했어요");
+            if (id != null) LoadGuideLists();
+        };
+        stack.Children.Add(add);
+        stack.Children.Add(_guideLists);
+        sv.Content = stack;
+        g.Children.Add(sv);
+        _rail.Changed += SyncGuide;
+        SyncGuide(_rail.Selected);
+        return g;
+    }
+
+    private void SyncGuide(int idx)
+    {
+        for (var i = 0; i < _guideItems.Count; i++)
+        {
+            Anim.Opacity(_guideItems[i].Pill, i == idx ? 1 : 0, Anim.Medium);
+            _guideItems[i].Label.FontWeight = i == idx ? FontWeights.Bold : FontWeights.SemiBold;
+        }
+    }
+
+    /// <summary>내 재생목록 (보관함 → 재생목록) 을 사이드바에</summary>
+    private async void LoadGuideLists()
+    {
+        _guideLists.Children.Clear();
+        if (!Auth.IsLoggedIn) return;
+        try
+        {
+            var shelves = await InnerTube.Instance.BrowseShelves("FEmusic_liked_playlists");
+            foreach (var c in shelves.SelectMany(x => x.Items).Where(c => c.BrowseId != null || c.PlaylistId != null).Take(60))
+            {
+                var row = new Grid { Height = 52, CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Colors.Transparent), Padding = new Thickness(18, 0, 12, 0) };
+                var col = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
+                col.Children.Add(Theme.Text(c.Title, 14, FontWeights.SemiBold, Theme.OnSurface));
+                if (c.Subtitle.Length > 0) col.Children.Add(Theme.Text(c.Subtitle, 12, FontWeights.Normal, Theme.Secondary));
+                row.Children.Add(col);
+                row.PointerEntered += (_, _) => row.Background = Theme.B(Color.FromArgb(15, 255, 255, 255));
+                row.PointerExited += (_, _) => row.Background = new SolidColorBrush(Colors.Transparent);
+                row.Tapped += (_, _) => { if (c.BrowseId != null) OpenBrowse(c.BrowseId); else Play.Card(c); };
+                row.RightTapped += (_, e) => { e.Handled = true; TrackMenu.ShowCard(row, c, e.GetPosition(null)); };
+                _guideLists.Children.Add(row);
+            }
+        }
+        catch (Exception e) { Log.Warn($"사이드바 재생목록 실패: {e.Message}"); }
+    }
+
+    public void ToggleGuide()
+    {
+        _guideOpen = !_guideOpen;
+        Settings.Current.GuideOpen = _guideOpen;
+        var from = _content.Margin.Left;
+        var to = _guideOpen ? 240 - 72 : 0;
+        Tween.Run(_content, Anim.Medium, t => RepeatIcon.Curve(Anim.Ease, t), k => _content.Margin = new Thickness(from + (to - from) * k, 0, 0, 0));
+        if (_guideOpen)
+        {
+            if (_guideLists.Children.Count == 0) LoadGuideLists();
+            _guide.Visibility = Visibility.Visible;
+            Anim.SetTranslation(_guide, new Vector3(-40, 0, 0));
+            Anim.V(_guide).Opacity = 0;
+            Anim.Translate(_guide, Vector3.Zero);
+            Anim.Opacity(_guide, 1, Anim.Medium);
+            Anim.Opacity(_rail, 0, Anim.Fast);
+            _rail.IsHitTestVisible = false;
+        }
+        else
+        {
+            Anim.Translate(_guide, new Vector3(-40, 0, 0));
+            Anim.Opacity(_guide, 0, Anim.Fast);
+            Anim.Opacity(_rail, 1, Anim.Medium);
+            _rail.IsHitTestVisible = true;
+            var gen = _guideOpen;
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                await Task.Delay(Anim.Medium);
+                if (!_guideOpen) _guide.Visibility = Visibility.Collapsed;
+            });
+        }
+    }
+
+    /// <summary>상단 바 유리 — 지금 화면이 스크롤되어 있으면 보인다</summary>
+    private void SetNavGlass(bool on)
+    {
+        if (on == _navGlassOn) return;
+        _navGlassOn = on;
+        if (!PlayerPage.IsOpen) Anim.Opacity(_navGlass, on ? 1 : 0, Anim.Medium);
+    }
+
+    private void SyncNavGlass()
+    {
+        var page = _content.Children.OfType<ScrollPage>().LastOrDefault(v => v.Visibility == Visibility.Visible);
+        SetNavGlass(page?.IsScrolled == true);
+    }
 
     public void FocusSearch()
     {
@@ -274,6 +473,8 @@ public sealed class MainWindow : Window
     public void ReloadAll()
     {
         LoadAvatar();
+        if (_guideOpen) LoadGuideLists();
+        else _guideLists.Children.Clear();
         Home.Reload();
         Explore.Reload();
         Library.Reload();
@@ -281,6 +482,7 @@ public sealed class MainWindow : Window
 
     public void ShowSearch(string q)
     {
+        _drop?.Hide();
         ClosePlayer();
         ClearDetails();
         _search.Text = q;
@@ -312,6 +514,7 @@ public sealed class MainWindow : Window
         _content.Children.Add(d);
         Anim.Appear(d, 0, 12);
         d.Load();
+        SetNavGlass(false);
         UpdateNavButtons();
     }
 
@@ -353,6 +556,7 @@ public sealed class MainWindow : Window
         if (prev == null) return;
         prev.Visibility = Visibility.Visible;
         Anim.Appear(prev, 0, 12);
+        SyncNavGlass();
     }
 
     private void ClearDetails()
@@ -373,6 +577,8 @@ public sealed class MainWindow : Window
     public void OpenPlayer()
     {
         PlayerPage.Open();
+        Anim.Opacity(_playerWash, 1, Anim.Morph);
+        Anim.Opacity(_navGlass, 0, Anim.Fast);
         Bar.SetPlayerOpen(true);
         foreach (var el in new UIElement[] { _content, _nav, _rail })
         {
@@ -385,6 +591,8 @@ public sealed class MainWindow : Window
     {
         if (!PlayerPage.IsOpen) return;
         PlayerPage.Close();
+        Anim.Opacity(_playerWash, 0, Anim.Medium);
+        if (_navGlassOn) Anim.Opacity(_navGlass, 1, Anim.Medium);
         Bar.SetPlayerOpen(false);
         foreach (var el in new UIElement[] { _content, _nav, _rail })
         {
@@ -393,14 +601,34 @@ public sealed class MainWindow : Window
         }
     }
 
-    private async void OnSearchText(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs e)
+    private Grid? _searchPill;
+    private SearchDropdown? _drop;
+
+    /// <summary>추천을 고르면: 검색어는 검색, 곡은 재생(검색에서 튼 곡 → 자동재생 토글), 앨범 · 아티스트는 그 화면</summary>
+    private void Suggest(object tag)
     {
-        if (e.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+        switch (tag)
+        {
+            case string q:
+                ShowSearch(q);
+                break;
+            case SearchItem { Track: { } t }:
+                _ = Player.PlaySong(t, fromSearch: true);
+                break;
+            case SearchItem { BrowseId: { } id }:
+                OpenBrowse(id);
+                break;
+        }
+    }
+
+    private async void OnSearchText(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs? e)
+    {
+        if (e != null && e.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
         _suggestCts?.Cancel();
         var q = sender.Text.Trim();
         if (q.Length == 0)
         {
-            sender.ItemsSource = null;
+            _drop?.Hide();
             return;
         }
         var cts = _suggestCts = new CancellationTokenSource();
@@ -408,42 +636,12 @@ public sealed class MainWindow : Window
         {
             await Task.Delay(180, cts.Token);
             var (words, items) = await InnerTube.Instance.SuggestionsFull(q, cts.Token);
-            if (cts.IsCancellationRequested) return;
-            var rows = new List<FrameworkElement>();
-            foreach (var w in words) rows.Add(SuggestRow(w, null));
-            foreach (var it in items) rows.Add(SuggestRow(it.Title, it));
-            sender.ItemsSource = rows;
+            if (cts.IsCancellationRequested || _searchPill == null || _drop == null) return;
+            if (_search.FocusState == FocusState.Unfocused && !_drop.PointerInside) return;
+            _drop.Show(_searchPill, words, items);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Log.Warn($"추천 검색어 실패: {ex.Message}"); }
-    }
-
-    /// <summary>검색 추천 한 줄 — 돋보기 + 검색어, 또는 아트 + 제목 + '노래 • MC몽 • …' (pear 검색 드롭다운)</summary>
-    private static FrameworkElement SuggestRow(string text, SearchItem? item)
-    {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, Height = item == null ? 36 : 48, Tag = (object?)item ?? text };
-        if (item == null)
-        {
-            var icon = Theme.Icon(18, Theme.Secondary, Icons.SearchSesl);
-            icon.VerticalAlignment = VerticalAlignment.Center;
-            row.Children.Add(icon);
-            var t = Theme.Text(text, 15, FontWeights.Normal, Theme.Secondary);
-            t.VerticalAlignment = VerticalAlignment.Center;
-            row.Children.Add(t);
-            return row;
-        }
-        row.Children.Add(new Border
-        {
-            Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center,
-            CornerRadius = new CornerRadius(item.Round ? 20 : 6),
-            Background = Theme.B(Theme.Chip),
-            Child = new Image { Width = 40, Height = 40, Source = Theme.Image(item.Thumb, 72), Stretch = Stretch.UniformToFill },
-        });
-        var col = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
-        col.Children.Add(Theme.Text(item.Title, 15, FontWeights.Bold, Theme.OnSurface));
-        col.Children.Add(Theme.Text(item.Subtitle, 13, FontWeights.Normal, Theme.Secondary));
-        row.Children.Add(col);
-        return row;
     }
 
     private bool _barShown = true;
@@ -490,6 +688,9 @@ public sealed class MainWindow : Window
         var layer = new Grid { IsHitTestVisible = false };
         layer.Children.Add(new XRect { Fill = Radial(c.WithAlpha(0.58), new Point(w * 0.88, -h * 0.12), 1100, 720) });
         layer.Children.Add(new XRect { Fill = Radial(c.WithAlpha(0.36), new Point(-w * 0.08, h * 1.08), 900, 640) });
+        // 재생 화면 진한 앨범 색
+        _playerWash.Children.Clear();
+        _playerWash.Children.Add(new XRect { Fill = Radial(c.WithAlpha(0.5), new Point(w * 0.3, h * 0.45), 900, 700) });
         var old = _wash.Children.ToList();
         _wash.Children.Add(layer);
         if (!animate)
