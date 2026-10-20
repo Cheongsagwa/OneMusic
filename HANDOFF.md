@@ -48,12 +48,23 @@ pear 테마 원본은 `reference/pear-oneui-theme/` (style.css 토큰 · bar-ico
   - 다음 트랙 줄은 곡마다 한 번 만들어 다시 쓴다(`_rowCache`), 재생 화면이 닫혀 있으면 열 때 그린다
 - `TrackMenu.cs` — ⋮ 메뉴 전부: 좋아요|싫어요 · 다운로드 · YT 메뉴 항목 그대로 · (재생 바면) 현재 재생목록 닫기 · 전문 통계
 - `CommentsView.cs` · `LyricsView.cs`(Win2D, 가사 탭이 보일 때만 그림) · `FloatingBar.cs` · `WaveSeekBar.cs`(멈추면 쉼) · `Marquee.cs` · `BarIcons.cs`(모양 바뀌는 아이콘) · `ArtView.cs`(번지듯 바뀌는 아트) · `Rows.cs` · `Controls.cs` · `Extras.cs`(단축키 · 재생 속도 · 취침 타이머 · 알림 · 계정 메뉴) · `MiniPlayer.cs`
-- `Anim.cs` — pear style.css 의 linear() 곡선(ease · smooth · spring)을 키프레임으로 (220/440/560ms, 누름 0.9). 만든 애니메이션은 캐시해서 다시 씀
+- `Anim.cs` — pear style.css 의 linear() 곡선(ease · smooth · spring)을 키프레임으로 (220/440/560ms, 누름 0.9). 만든 애니메이션은 캐시해서 다시 씀.
+  윈도우 '애니메이션 효과' 를 끄면 1ms (`Anim.Enabled`, pear prefers-reduced-motion)
+- `OneDialog.cs` — 대화상자도 덮개 층(블러 + oneui-pop 스프링). `Prompt.Ask` · YT 확인 대화상자가 쓴다
+- `Effects.cs` 의 `Shimmer` — 아트를 불러오는 동안 지나가는 빛 (pear 65), `ArtView.cs` 의 `AmbientGlow` — 재생 화면 아트 뒤 번지는 빛 (pear ambient-mode)
+- `TaskbarButtons.cs` — 작업 표시줄 미리보기 이전 · 재생 · 다음 (ITaskbarList3 + WndProc 가로채기, pear taskbar-mediacontrol)
 
 ## 성능 메모
 - `CompositionTarget.Rendering` 을 구독하면 앱 전체가 매 프레임 다시 그려진다 → 필요할 때만 (가사: 탭이 보일 때, 파도 · 이퀄라이저: 재생 중일 때, 흘리는 글자: 넘칠 때)
 - 목록 끝 흐림(`ListFade`)은 화면에 걸친 줄만 계산, 흐림 덮개(`WashFade`)는 숨은 화면이면 건너뜀
 - 붓(`Theme.B`)은 같은 색이면 하나를 같이 씀 → 붓 색을 직접 바꾸지 말 것
+
+## pear 플러그인 대응
+- 있음: album-actions(모두 좋아요) · album-color-theme · ambient-mode · blur-nav-bar · custom-output-device · downloader · exponential-volume ·
+  navigation · notifications · picture-in-picture(미니 플레이어) · playback-speed · precise-volume · shortcuts · skip-disliked-songs ·
+  synced-lyrics · taskbar-mediacontrol · unobtrusive-player · video-toggle
+- 일부러 안 함: in-app-menu(사용자 요청) · 외부 서비스용(discord · scrobbler · lumiastream · tuna-obs · music-together · api-server · amuse) ·
+  웹 오디오 전용(equalizer · audio-compressor · skip-silences · visualizer · crossfade) · captions-selector · quality-changer · sponsorblock · clock · touchbar(맥)
 
 ## 개발용 통로 (PC 에서 작업할 때만, Debug 빌드에서만 켜짐)
 - `dev-watch.bat` 을 켜 두면 `.dev\cmd.txt` 에 `build` / `run` / `stop` / `mem` / `publish` 를 적을 때 실행하고 `.dev\out.txt` 에 결과를 남긴다
