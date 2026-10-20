@@ -155,7 +155,11 @@ public sealed class MainWindow : Window
         OneMenu.Attach(Root);
 
         Content = Root;
-        Root.Loaded += (_, _) => Home.LoadOnce();
+        Root.Loaded += (_, _) =>
+        {
+            Home.LoadOnce();
+            if (Player.Current == null) ShowBar(false);
+        };
         Root.KeyDown += (_, e) =>
         {
             if (e.Key == Windows.System.VirtualKey.Escape && OneMenu.IsOpen) OneMenu.CloseAll();
@@ -211,6 +215,14 @@ public sealed class MainWindow : Window
         _search.Resources["TextControlForegroundFocused"] = Theme.B(Colors.White);
         _search.Resources["TextControlPlaceholderForeground"] = Theme.B(Theme.Secondary);
         _search.Resources["TextControlPlaceholderForegroundFocused"] = Theme.B(Theme.Secondary);
+        // 추천 목록: 검색창 밑 8px 떨어진 둥근(24) 유리 카드, 테두리 없음 (pear 35 · 58)
+        _search.Resources["AutoSuggestBoxSuggestionsListBackground"] = Theme.Glass(0.86, Color.FromArgb(255, 46, 46, 48));
+        _search.Resources["AutoSuggestBoxSuggestionsListBorderBrush"] = new SolidColorBrush(Colors.Transparent);
+        _search.Resources["AutoSuggestListBorderThemeThickness"] = new Thickness(0);
+        _search.Resources["AutoSuggestListMargin"] = new Thickness(-40, 14, -8, 0);
+        _search.Resources["AutoSuggestListPadding"] = new Thickness(6);
+        _search.Resources["OverlayCornerRadius"] = new CornerRadius(24);
+        _search.Resources["ListViewItemCornerRadius"] = new CornerRadius(16);
         _search.TextChanged += OnSearchText;
         // 추천 줄은 글자가 아니라 화면 요소라서, 고를 때 입력칸 글자를 바꾸지 않는다
         _search.UpdateTextOnSelect = false;
@@ -421,10 +433,24 @@ public sealed class MainWindow : Window
         return row;
     }
 
+    private bool _barShown = true;
+
+    /// <summary>재생할 곡이 없으면 재생 바를 아래로 내려 숨긴다 (YT Music: 처음 · 현재 재생목록 닫기)</summary>
+    private void ShowBar(bool show)
+    {
+        if (show == _barShown) return;
+        _barShown = show;
+        Bar.IsHitTestVisible = show;
+        Anim.Slide(Bar, new Vector3(0, show ? 0 : (float)(Theme.BarHeight + Theme.FloatGap * 2), 0), 640);
+        Anim.Opacity(Bar, show ? 1 : 0, show ? Anim.Medium : Anim.Fast);
+        if (!show) ClosePlayer();
+    }
+
     private async void OnTrack()
     {
         var t = Player.Current;
         LyricsState.Instance.Load(t);
+        ShowBar(t != null);
         if (t == null) return;
         var c = await AlbumColor.FromUrl(t.Thumb);
         if (Player.Current?.VideoId != t.VideoId) return;
