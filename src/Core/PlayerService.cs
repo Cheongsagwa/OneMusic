@@ -35,6 +35,11 @@ public sealed class PlayerService
     /// <summary>자동재생 칩 (전체 · 친숙한 곡 · 인기 · 처음 듣는 곡 · 숨은 명곡 · 2020년대 …)</summary>
     public List<QueueChip> AutoChips { get; private set; } = new();
     public bool AutoLoading { get; private set; }
+    /// <summary>
+    /// 곡 하나로 시작한 라디오(믹스)인지. YT Music 처럼 라디오는 목록 전체가 하나로 이어지고
+    /// 칩이 목록 맨 위에 붙는다 (자동재생 줄 · '자동재생 사용 중' 구분 없음)
+    /// </summary>
+    public bool Radio { get; private set; }
     private int _autoVersion;
 
     /// <summary>자동재생 — 목록 끝에 다다르면 비슷한 곡을 이어서 튼다</summary>
@@ -45,7 +50,7 @@ public sealed class PlayerService
         {
             Settings.Current.Autoplay = value;
             QueueChanged?.Invoke();
-            if (value && AutoStart >= Queue.Count && Queue.Count > 0) _ = LoadAuto(Queue[^1].VideoId, null, null);
+            if (value && !Radio && AutoStart >= Queue.Count && Queue.Count > 0) _ = LoadAuto(Queue[^1].VideoId, null, null);
         }
     }
     public bool Loading { get; private set; }
@@ -134,6 +139,7 @@ public sealed class PlayerService
         Queue = new List<Track> { t };
         Index = 0;
         AutoStart = 1;
+        Radio = true;
         AutoChips = new();
         QueueTitle = null;
         RelatedBrowseId = null;
@@ -151,7 +157,7 @@ public sealed class PlayerService
             AutoChips = data.Chips;
             Queue = new List<Track> { t };
             Queue.AddRange(data.Tracks.Where(x => x.VideoId != t.VideoId));
-            if (Autoplay && Queue.Count > 1) StreamResolver.Instance.Prefetch(Queue[1].VideoId);
+            if (Queue.Count > 1) StreamResolver.Instance.Prefetch(Queue[1].VideoId);
         }
         catch (Exception e) { Log.Warn($"라디오 불러오기 실패: {e.Message}"); }
         finally
@@ -174,6 +180,7 @@ public sealed class PlayerService
         Queue = new List<Track>(list);
         AutoStart = Queue.Count;
         AutoChips = new();
+        Radio = false;
         Index = Math.Clamp(start, 0, list.Count - 1);
         var version = ++_autoVersion;
         QueueChanged?.Invoke();
@@ -203,13 +210,13 @@ public sealed class PlayerService
         {
             var data = await InnerTube.Instance.GetQueue(videoId, playlistId, @params);
             if (v != _autoVersion) return;
-            // 지금 곡이 자동재생 구간에 있으면 그 곡까지는 남긴다
-            var keep = Queue.Take(Math.Max(AutoStart, Index + 1)).ToList();
+            // 지금 곡이 자동재생 구간에 있으면 그 곡까지는 남긴다 (라디오는 지금 곡 뒤를 통째로 바꾼다)
+            var keep = Queue.Take(Radio ? Index + 1 : Math.Max(AutoStart, Index + 1)).ToList();
             var known = keep.Select(t => t.VideoId).ToHashSet();
             Queue = keep.Concat(data.Tracks.Where(t => known.Add(t.VideoId))).ToList();
             if (!keepChips || AutoChips.Count == 0) AutoChips = data.Chips;
             RelatedBrowseId ??= data.RelatedBrowseId;
-            if (Autoplay && Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
+            if ((Autoplay || Radio) && Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
         }
         catch (Exception e) { Log.Warn($"자동재생 목록 불러오기 실패: {e.Message}"); }
         finally
@@ -220,6 +227,50 @@ public sealed class PlayerService
                 QueueChanged?.Invoke();
             }
         }
+    }
+
+    /// <summary>지금 곡 바로 뒤에 끼운다 (YT Music '다음에 재생')</summary>
+    public void PlayNext(Track t)
+    {
+        if (Current == null) { _ = PlaySong(t); return; }
+        Remove(t.VideoId, keepCurrent: true);
+        Queue.Insert(Index + 1, t);
+        if (Index + 1 < AutoStart || Radio) AutoStart++;
+        else AutoStart = Index + 2;
+        QueueChanged?.Invoke();
+        StreamResolver.Instance.Prefetch(t.VideoId);
+    }
+
+    /// <summary>고른 곡들 끝(자동재생 구간 앞)에 붙인다 ('현재 재생목록에 추가')</summary>
+    public void AddToQueue(Track t)
+    {
+        if (Current == null) { _ = PlaySong(t); return; }
+        Remove(t.VideoId, keepCurrent: true);
+        var at = Radio ? Queue.Count : Math.Min(AutoStart, Queue.Count);
+        Queue.Insert(at, t);
+        if (!Radio) AutoStart = at + 1;
+        QueueChanged?.Invoke();
+    }
+
+    /// <summary>목록에서 뺀다 (지금 곡은 못 뺌)</summary>
+    public void RemoveFromQueue(int index)
+    {
+        if (index < 0 || index >= Queue.Count || index == Index) return;
+        Queue.RemoveAt(index);
+        if (index < Index) Index--;
+        if (index < AutoStart) AutoStart--;
+        QueueChanged?.Invoke();
+    }
+
+    private void Remove(string videoId, bool keepCurrent)
+    {
+        for (var i = Queue.Count - 1; i >= 0; i--)
+            if (Queue[i].VideoId == videoId && !(keepCurrent && i == Index))
+            {
+                Queue.RemoveAt(i);
+                if (i < Index) Index--;
+                if (i < AutoStart) AutoStart--;
+            }
     }
 
     public async Task PlayAt(int index)
@@ -247,7 +298,7 @@ public sealed class PlayerService
     {
         if (Queue.Count == 0) return;
         // 자동재생을 끄면 자동재생 구간은 건너뛴다 (목록 끝 = 사용자가 고른 곡 끝)
-        var end = Autoplay ? Queue.Count : Math.Min(AutoStart, Queue.Count);
+        var end = Autoplay || Radio ? Queue.Count : Math.Min(AutoStart, Queue.Count);
         if (Index + 1 < end) Index++;
         else if (Repeat == RepeatMode.All) Index = 0;
         else
@@ -283,7 +334,7 @@ public sealed class PlayerService
     public void Shuffle()
     {
         // 사용자가 고른 곡들 안에서만 섞는다 (지금 곡이 자동재생 구간이면 그 뒤를)
-        var end = Index < AutoStart ? AutoStart : Queue.Count;
+        var end = Radio || Index >= AutoStart ? Queue.Count : AutoStart;
         if (end - Index <= 2) return;
         var mid = Queue.Skip(Index + 1).Take(end - Index - 1).OrderBy(_ => Random.Shared.Next());
         Queue = Queue.Take(Index + 1).Concat(mid).Concat(Queue.Skip(end)).ToList();

@@ -9,6 +9,7 @@ namespace OneMusic.UI;
 public sealed class DetailView : ScrollPage
 {
     private readonly string _browseId;
+    public string BrowseId => _browseId;
     private readonly List<TrackRow> _rows = new();
     private readonly TextBlock _status = Theme.Text("불러오는 중…", 15, FontWeights.SemiBold, Theme.Secondary);
     private PageData? _page;
@@ -56,10 +57,20 @@ public sealed class DetailView : ScrollPage
                 Body.Children.Add(_status);
                 return;
             }
-            var head = BuildHeader(page);
-            Body.Children.Add(head);
-            Anim.Appear(head);
-            if (page.Tracks.Count > 0)
+            if (page.Kind != PageKind.Artist)
+            {
+                // 앨범 · 플레이리스트: pear(YT Music) 처럼 왼쪽 가운데 정렬 머리 + 오른쪽 곡 목록 카드
+                var two = BuildTwoColumn(page);
+                Body.Children.Add(two);
+                Anim.Appear(two);
+            }
+            else
+            {
+                var head = BuildHeader(page);
+                Body.Children.Add(head);
+                Anim.Appear(head);
+            }
+            if (page.Kind == PageKind.Artist && page.Tracks.Count > 0)
             {
                 var list = BuildTracks(page);
                 Body.Children.Add(list);
@@ -151,6 +162,122 @@ public sealed class DetailView : ScrollPage
         Grid.SetColumn(info, 1);
         g.Children.Add(info);
         return g;
+    }
+
+    /// <summary>
+    /// 앨범 · 플레이리스트 화면 — 왼쪽 칸(아트 · 제목 32 · 만든 사람 · 정보 · 셔플 / ▶ / 링크) 가운데 정렬,
+    /// 오른쪽 칸은 둥근 카드 안의 곡 목록
+    /// </summary>
+    private FrameworkElement BuildTwoColumn(PageData page)
+    {
+        var g = new Grid { Margin = new Thickness(Left, 8, 40, 0), ColumnSpacing = 48 };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MaxWidth = 760 });
+
+        var left = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 40, 0, 0) };
+        // 동영상 썸네일(ytimg)로 된 플레이리스트 표지는 16:9, 나머지는 정사각
+        var wide = page.Thumb?.Contains("ytimg.com") == true;
+        var art = new Border { Width = 264, Height = wide ? 148 : 264, CornerRadius = new CornerRadius(Theme.RadiusArt), Background = Theme.B(Theme.Chip), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8) };
+        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(page.Thumb, 264) };
+        Anim.V(img).Opacity = 0;
+        img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
+        art.Child = img;
+        left.Children.Add(art);
+        var title = Theme.Text(page.Title, 32, FontWeights.ExtraBold, Theme.OnSurface, 2);
+        title.TextAlignment = TextAlignment.Center;
+        title.HorizontalAlignment = HorizontalAlignment.Center;
+        left.Children.Add(title);
+
+        if (page.Strapline != null)
+        {
+            var who = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, Background = new SolidColorBrush(Colors.Transparent) };
+            if (page.StraplineThumb != null)
+                who.Children.Add(new Border { Width = 24, Height = 24, CornerRadius = new CornerRadius(12), Child = new Image { Source = Theme.Image(page.StraplineThumb, 24), Stretch = Stretch.UniformToFill } });
+            var name = Theme.Text(page.Strapline, 14, FontWeights.SemiBold, Theme.OnSurface);
+            name.VerticalAlignment = VerticalAlignment.Center;
+            who.Children.Add(name);
+            if (page.StraplineId != null)
+            {
+                who.PointerEntered += (_, _) => name.TextDecorations = Windows.UI.Text.TextDecorations.Underline;
+                who.PointerExited += (_, _) => name.TextDecorations = Windows.UI.Text.TextDecorations.None;
+                who.Tapped += (_, _) => App.MainWin?.OpenBrowse(page.StraplineId);
+            }
+            left.Children.Add(who);
+        }
+        foreach (var line in new[] { page.Subtitle, page.SecondSubtitle })
+        {
+            if (line == null) continue;
+            var t = Theme.Text(line, 14, FontWeights.Normal, Theme.Secondary);
+            t.HorizontalAlignment = HorizontalAlignment.Center;
+            t.Margin = new Thickness(0, -4, 0, 0);
+            left.Children.Add(t);
+        }
+
+        // 버튼: 셔플 · ▶(64 흰 동그라미) · 링크 복사
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
+        if (page.Tracks.Count > 1) buttons.Children.Add(Circle(40, false, Icons.Shuffle, true, "셔플", () => PlayAll(true)));
+        if (page.Tracks.Count > 0) buttons.Children.Add(Circle(64, true, Icons.Play, false, "재생", () => PlayAll(false)));
+        buttons.Children.Add(Circle(40, false, Icons.Link, true, "링크 복사", () => CopyLink(page)));
+        left.Children.Add(buttons);
+        if (page.Description != null)
+        {
+            var d = Theme.Text(page.Description, 14, FontWeights.Normal, Theme.Secondary, 4);
+            d.TextAlignment = TextAlignment.Center;
+            d.Margin = new Thickness(0, 12, 0, 0);
+            left.Children.Add(d);
+        }
+        g.Children.Add(left);
+
+        if (page.Tracks.Count > 0)
+        {
+            var list = new StackPanel();
+            var album = page.Kind == PageKind.Album;
+            for (var i = 0; i < page.Tracks.Count; i++)
+            {
+                var idx = i;
+                var t = page.Tracks[i];
+                // 앨범은 번호, 플레이리스트는 '가수 • 앨범'
+                var r = new TrackRow(t, divider: i < page.Tracks.Count - 1,
+                    subtitle: album || t.Album == null ? null : $"{t.Artist} • {t.Album}",
+                    number: album ? i + 1 : null);
+                r.Click += row => _ = PlayerService.Instance.PlayList(page.Tracks, idx, page.Title);
+                _rows.Add(r);
+                list.Children.Add(r);
+            }
+            var card = new Border
+            {
+                CornerRadius = new CornerRadius(Theme.RadiusCard),
+                Background = Theme.B(Color.FromArgb(20, 255, 255, 255)),
+                Padding = new Thickness(12, 8, 12, 8),
+                Child = list,
+                Margin = new Thickness(0, 24, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            Grid.SetColumn(card, 1);
+            g.Children.Add(card);
+        }
+        return g;
+    }
+
+    private static FrameworkElement Circle(double size, bool primary, string icon, bool stroke, string tip, Action click)
+    {
+        var b = new IconButton(size);
+        var grid = new Grid();
+        grid.Children.Add(new XEllipse { Width = size, Height = size, Fill = Theme.B(primary ? Colors.White : Theme.Chip) });
+        grid.Children.Add(Theme.Icon(icon, primary ? 30 : 20, primary ? Colors.Black : Colors.White, stroke: stroke, strokeWidth: 2));
+        b.Content = grid;
+        if (primary) b.HoverBrush = new SolidColorBrush(Colors.Transparent);
+        ToolTipService.SetToolTip(b, tip);
+        b.Click += click;
+        return b;
+    }
+
+    private void CopyLink(PageData page)
+    {
+        var url = _browseId.StartsWith("VL") ? $"https://music.youtube.com/playlist?list={_browseId[2..]}" : $"https://music.youtube.com/browse/{_browseId}";
+        var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        pkg.SetText(url);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
     }
 
     /// <summary>알약 버튼 44px — 주 버튼은 흰 바탕 검은 글씨, 나머지는 반투명 칩</summary>

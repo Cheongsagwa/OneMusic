@@ -131,6 +131,12 @@ public static class Icons
     public const string Shuffle = "M3.6 18.6H6.4c4.8 0 6.4-13.2 11.2-13.2h2.8 M3.6 5.4H6.4c4.8 0 6.4 13.2 11.2 13.2h2.8 M17.8 2.8l2.6 2.6-2.6 2.6 M17.8 16l2.6 2.6-2.6 2.6";
     public const string ChevronDown = "M6 9.4 12 15.4l6-6";
     public const string ChevronLeft = "M14.6 6 8.6 12l6 6";
+    public const string PlayNextIcon = "M4 6h10 M4 11h7 M4 16h7 M15 11v8l5-4z";
+    public const string QueueAdd = "M4 6h12 M4 11h12 M4 16h7 M17 14v6 M14 17h6";
+    public const string Album = "M12 3.5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17z M12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 1 1 0-5z";
+    public const string Person = "M12 4.5a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7z M5 19.5c.8-3.4 3.6-5.5 7-5.5s6.2 2.1 7 5.5";
+    public const string ChevronRight = "M9.4 6l6 6-6 6";
+    public const string Link = "M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1 M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1";
     public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";
     public const string ChevronUp = "M6 14.6 12 8.6l6 6";
     public const string Search = "M10.8 4.2a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2z M15.6 15.6 20 20";

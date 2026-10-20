@@ -22,6 +22,9 @@ public sealed class MainWindow : Window
     private readonly List<DetailView> _details = new();
     private FrameworkElement? _underDetails;
     private readonly Grid _wash = new() { IsHitTestVisible = false };
+    private IconButton _backBtn = null!, _fwdBtn = null!, _account = null!;
+    /// <summary>뒤로 간 상세 화면들 (앞으로 가기용)</summary>
+    private readonly List<string> _forward = new();
     private readonly Grid _content = new();
     private Grid _nav = null!;
     private NavRail _rail = null!;
@@ -88,13 +91,28 @@ public sealed class MainWindow : Window
         logo.Width = 100;
         _nav.Children.Add(logo);
         _nav.Children.Add(BuildSearch());
-        var settings = new IconButton(40) { Content = Theme.Icon(24, Colors.White, Icons.Settings), HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 24, 0) };
+        // 오른쪽: ‹ › (뒤로 · 앞으로) + 프로필 사진(누르면 메뉴) — pear 상단 바
+        var rightBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 100, 0) };
+        _backBtn = new IconButton(40) { Content = Theme.Icon(Icons.ChevronLeft, 24, Colors.White, stroke: true, strokeWidth: 2) };
+        _fwdBtn = new IconButton(40) { Content = Theme.Icon(Icons.ChevronRight, 24, Colors.White, stroke: true, strokeWidth: 2) };
+        _backBtn.Click += Back;
+        _fwdBtn.Click += Forward;
+        ToolTipService.SetToolTip(_backBtn, "뒤로");
+        ToolTipService.SetToolTip(_fwdBtn, "앞으로");
+        rightBar.Children.Add(_backBtn);
+        rightBar.Children.Add(_fwdBtn);
+        var settings = new IconButton(40) { Content = Theme.Icon(24, Colors.White, Icons.Settings), Margin = new Thickness(16, 0, 0, 0) };
+        ToolTipService.SetToolTip(settings, "계정");
         var flyout = new MenuFlyout();
         var logout = new MenuFlyoutItem { Text = "로그아웃" };
         logout.Click += (_, _) => { Auth.Logout(); ReloadAll(); };
         flyout.Items.Add(logout);
         settings.Click += () => flyout.ShowAt(settings);
-        _nav.Children.Add(settings);
+        rightBar.Children.Add(settings);
+        _nav.Children.Add(rightBar);
+        _account = settings;
+        LoadAvatar();
+        UpdateNavButtons();
         layout.Children.Add(_nav);
 
         // 왼쪽 레일
@@ -106,7 +124,7 @@ public sealed class MainWindow : Window
         // 화면
         Home = new ShelvesView("FEmusic_home", withChips: true);
         Explore = new ShelvesView("FEmusic_explore", withChips: false) { Visibility = Visibility.Collapsed };
-        Library = new ShelvesView("FEmusic_library_landing", withChips: false) { Visibility = Visibility.Collapsed };
+        Library = new ShelvesView("FEmusic_library_landing", withChips: true) { Visibility = Visibility.Collapsed };
         Search = new SearchView { Visibility = Visibility.Collapsed };
         foreach (var v in new FrameworkElement[] { Home, Explore, Library, Search }) _content.Children.Add(v);
         Grid.SetRow(_content, 2);
@@ -215,6 +233,7 @@ public sealed class MainWindow : Window
 
     public void ReloadAll()
     {
+        LoadAvatar();
         Home.Reload();
         Explore.Reload();
         Library.Reload();
@@ -232,9 +251,12 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>앨범 · 플레이리스트 · 아티스트 상세 화면을 지금 화면 위에 연다 (뒤로 가면 원래 화면 · 스크롤 위치 그대로)</summary>
-    public void OpenBrowse(string browseId)
+    public void OpenBrowse(string browseId) => OpenBrowse(browseId, fromForward: false);
+
+    private void OpenBrowse(string browseId, bool fromForward)
     {
         ClosePlayer();
+        if (!fromForward) _forward.Clear();
         var current = _content.Children.OfType<FrameworkElement>().LastOrDefault(v => v.Visibility == Visibility.Visible);
         if (_details.Count == 0) _underDetails = current;
         if (current != null) current.Visibility = Visibility.Collapsed;
@@ -250,13 +272,43 @@ public sealed class MainWindow : Window
         _content.Children.Add(d);
         Anim.Appear(d, 0, 12);
         d.Load();
+        UpdateNavButtons();
+    }
+
+    public void Forward()
+    {
+        if (_forward.Count == 0) return;
+        var id = _forward[^1];
+        _forward.RemoveAt(_forward.Count - 1);
+        OpenBrowse(id, fromForward: true);
+    }
+
+    private void UpdateNavButtons()
+    {
+        _backBtn.Opacity = _details.Count > 0 ? 1 : 0.35;
+        _fwdBtn.Opacity = _forward.Count > 0 ? 1 : 0.35;
+    }
+
+    /// <summary>계정 버튼을 프로필 사진으로 (로그인했을 때)</summary>
+    private async void LoadAvatar()
+    {
+        if (!Auth.IsLoggedIn) return;
+        try
+        {
+            var url = await InnerTube.Instance.AccountPhoto();
+            if (url == null) return;
+            _account.Content = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Child = new Image { Source = Theme.Image(url, 32), Stretch = Stretch.UniformToFill } };
+        }
+        catch (Exception e) { Log.Warn($"프로필 사진 실패: {e.Message}"); }
     }
 
     public void Back()
     {
         if (_details.Count == 0) return;
+        _forward.Add(_details[^1].BrowseId);
         _content.Children.Remove(_details[^1]);
         _details.RemoveAt(_details.Count - 1);
+        UpdateNavButtons();
         FrameworkElement? prev = _details.Count > 0 ? _details[^1] : _underDetails;
         if (prev == null) return;
         prev.Visibility = Visibility.Visible;
@@ -268,6 +320,8 @@ public sealed class MainWindow : Window
         foreach (var d in _details) _content.Children.Remove(d);
         _details.Clear();
         _underDetails = null;
+        _forward.Clear();
+        UpdateNavButtons();
     }
 
     public void TogglePlayer()

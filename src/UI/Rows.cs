@@ -12,7 +12,9 @@ public sealed class TrackRow : Grid
     public Track Track { get; }
     public event Action<TrackRow>? Click;
 
-    public TrackRow(Track t, bool divider = true)
+    /// <param name="subtitle">둘째 줄 (기본: 가수). 플레이리스트에선 '가수 • 앨범'</param>
+    /// <param name="number">앨범 수록곡처럼 앨범아트 대신 번호를 보일 때</param>
+    public TrackRow(Track t, bool divider = true, string? subtitle = null, int? number = null)
     {
         Track = t;
         Height = 68;
@@ -29,16 +31,26 @@ public sealed class TrackRow : Grid
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _artBox = new Grid { Width = 44, Height = 44, VerticalAlignment = VerticalAlignment.Center };
-        var art = new Border { CornerRadius = new CornerRadius(Theme.RadiusThumb), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
-        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 44) };
-        Anim.V(img).Opacity = 0;
-        img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
-        art.Child = img;
-        _artBox.Children.Add(art);
+        if (number is { } n)
+        {
+            var num = Theme.Text(n.ToString(), 15, FontWeights.SemiBold, Theme.Secondary);
+            num.HorizontalAlignment = HorizontalAlignment.Center;
+            num.VerticalAlignment = VerticalAlignment.Center;
+            _artBox.Children.Add(num);
+        }
+        else
+        {
+            var art = new Border { CornerRadius = new CornerRadius(Theme.RadiusThumb), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
+            var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 44) };
+            Anim.V(img).Opacity = 0;
+            img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
+            art.Child = img;
+            _artBox.Children.Add(art);
+        }
         g.Children.Add(_artBox);
         var text = new StackPanel { Margin = new Thickness(16, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
         text.Children.Add(Theme.Text(t.Title, 14, FontWeights.Bold, Theme.OnSurface));
-        text.Children.Add(Theme.Text(t.Artist, 14, FontWeights.Normal, Theme.Secondary));
+        text.Children.Add(Theme.Text(subtitle ?? t.Artist, 14, FontWeights.Normal, Theme.Secondary));
         Grid.SetColumn(text, 1);
         g.Children.Add(text);
         var dur = Theme.Text(t.DurationText, 14, FontWeights.Normal, Theme.Secondary);
@@ -50,7 +62,15 @@ public sealed class TrackRow : Grid
         PointerEntered += (_, _) => Anim.Opacity(_hover, 1, 160);
         PointerExited += (_, _) => Anim.Opacity(_hover, 0, 240);
         Tapped += (_, _) => Click?.Invoke(this);
+        RightTapped += (_, e) =>
+        {
+            e.Handled = true;
+            TrackMenu.Show(this, Track, QueueIndex);
+        };
     }
+
+    /// <summary>다음 트랙 목록 안의 자리 (있으면 우클릭 메뉴에 '현재 재생목록에서 삭제')</summary>
+    public int? QueueIndex { get; set; }
 
     /// <summary>지금 재생 중인 곡 표시 — 아트 오른쪽 아래 이퀄라이저</summary>
     public void SetCurrent(bool current)
@@ -157,11 +177,11 @@ public sealed class CardView : StackPanel
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
         art.Child = img;
         Children.Add(art);
-        var title = Theme.Text(c.Title, 14, FontWeights.Bold, Theme.OnSurface);
+        var title = Theme.Text(c.Title, 14, FontWeights.Bold, Theme.OnSurface, 2);
         Children.Add(title);
         if (!string.IsNullOrEmpty(c.Subtitle))
         {
-            var sub = Theme.Text(c.Subtitle, 14, FontWeights.Normal, Theme.Secondary);
+            var sub = Theme.Text(c.Subtitle, 14, FontWeights.Normal, Theme.Secondary, 2);
             sub.Margin = new Thickness(0, -6, 0, 0);
             Children.Add(sub);
         }
@@ -170,5 +190,84 @@ public sealed class CardView : StackPanel
         img.SizeChanged += (_, _) => Anim.V(img).CenterPoint = new Vector3((float)img.ActualWidth / 2, (float)img.ActualHeight / 2, 0);
         Anim.Pressable(art, 0.96f);
         Tapped += (_, _) => Click?.Invoke(c);
+    }
+}
+
+/// <summary>가로로 채우다 넘치면 다음 줄로 (보관함 격자)</summary>
+public sealed class WrapPanel : Panel
+{
+    public double HSpacing { get; set; } = 16;
+    public double VSpacing { get; set; } = 24;
+
+    protected override Size MeasureOverride(Size available)
+    {
+        double x = 0, y = 0, rowH = 0, maxW = 0;
+        foreach (var c in Children)
+        {
+            c.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var d = c.DesiredSize;
+            if (x > 0 && x + d.Width > available.Width)
+            {
+                y += rowH + VSpacing;
+                x = 0;
+                rowH = 0;
+            }
+            x += d.Width + HSpacing;
+            maxW = Math.Max(maxW, x - HSpacing);
+            rowH = Math.Max(rowH, d.Height);
+        }
+        return new Size(double.IsInfinity(available.Width) ? maxW : available.Width, y + rowH);
+    }
+
+    protected override Size ArrangeOverride(Size final)
+    {
+        double x = 0, y = 0, rowH = 0;
+        foreach (var c in Children)
+        {
+            var d = c.DesiredSize;
+            if (x > 0 && x + d.Width > final.Width)
+            {
+                y += rowH + VSpacing;
+                x = 0;
+                rowH = 0;
+            }
+            c.Arrange(new Rect(x, y, d.Width, d.Height));
+            x += d.Width + HSpacing;
+            rowH = Math.Max(rowH, d.Height);
+        }
+        return final;
+    }
+}
+
+/// <summary>곡 우클릭 메뉴 (pear 의 ⋮ 메뉴에서 실제로 되는 것들)</summary>
+public static class TrackMenu
+{
+    public static void Show(FrameworkElement at, Track t, int? queueIndex = null)
+    {
+        var p = PlayerService.Instance;
+        var f = new MenuFlyout();
+        void Item(string text, string icon, Action a)
+        {
+            // 아이콘은 선 그림이라 PathIcon(채움)으로는 못 그려서 글자만
+            var it = new MenuFlyoutItem { Text = text };
+            it.Click += (_, _) => a();
+            f.Items.Add(it);
+        }
+        Item("믹스 시작", Icons.Radio, () => _ = p.PlaySong(t));
+        Item("다음에 재생", Icons.PlayNextIcon, () => p.PlayNext(t));
+        Item("현재 재생목록에 추가", Icons.QueueAdd, () => p.AddToQueue(t));
+        if (queueIndex is { } qi && qi != p.Index)
+            Item("현재 재생목록에서 삭제", Icons.Close, () => p.RemoveFromQueue(qi));
+        if (t.AlbumId != null || t.ArtistId != null) f.Items.Add(new MenuFlyoutSeparator());
+        if (t.AlbumId != null) Item("앨범으로 이동", Icons.Album, () => App.MainWin?.OpenBrowse(t.AlbumId));
+        if (t.ArtistId != null) Item("아티스트 페이지로 이동", Icons.Person, () => App.MainWin?.OpenBrowse(t.ArtistId));
+        f.Items.Add(new MenuFlyoutSeparator());
+        Item("공유 (링크 복사)", Icons.Link, () =>
+        {
+            var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            pkg.SetText($"https://music.youtube.com/watch?v={t.VideoId}");
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+        });
+        f.ShowAt(at);
     }
 }

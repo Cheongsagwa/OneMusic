@@ -26,6 +26,8 @@ public sealed record Card(
 
 public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks = null)
 {
+    /// <summary>보관함처럼 줄바꿈 격자로 보여 줄 셸프</summary>
+    public bool Grid { get; init; }
     /// <summary>제목 위 작은 글씨 (예: 다시 듣기 위의 내 이름)</summary>
     public string? Strapline { get; init; }
     /// <summary>제목 왼쪽 동그란 사진 (예: 내 프로필)</summary>
@@ -68,7 +70,22 @@ public sealed record PageData(
     string? TracksMoreId,
     List<Shelf> Shelves,
     string? PlayPlaylistId,
-    string? RadioPlaylistId);
+    string? RadioPlaylistId)
+{
+    /// <summary>만든 사람(플레이리스트 주인 · 앨범 가수) 동그란 사진</summary>
+    public string? StraplineThumb { get; init; }
+}
+
+/// <summary>검색 결과 한 줄 (노래 · 동영상 · 앨범 · 아티스트 · 플레이리스트 …)</summary>
+public sealed record SearchItem(string Title, string Subtitle, string? Thumb, string? BrowseId, string? PageType, Track? Track)
+{
+    public bool Round => PageType is "MUSIC_PAGE_TYPE_ARTIST" or "MUSIC_PAGE_TYPE_USER_CHANNEL";
+}
+
+public sealed record SearchSection(string Title, List<SearchItem> Items);
+
+/// <summary>검색 결과 — 맨 위 결과 카드 + 갈래별 목록 + 필터 칩 (노래 · 동영상 · 아티스트 …) + 고친 검색어</summary>
+public sealed record SearchData(SearchItem? Top, List<SearchItem> TopMore, List<SearchSection> Sections, List<Chip> Chips, string? Corrected);
 
 public sealed record LyricLine(int TimeMs, string Text);
 

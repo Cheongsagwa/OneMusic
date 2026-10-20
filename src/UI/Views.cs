@@ -19,7 +19,7 @@ public static class Play
             if (c.VideoId != null && c.PlaylistId == null)
             {
                 var t = shelf?.Tracks?.FirstOrDefault(x => x.VideoId == c.VideoId)
-                        ?? new Track(c.VideoId, c.Title, c.Subtitle.Split(" • ")[0], null, c.Thumb, 0);
+                        ?? new Track(c.VideoId, c.Title, InnerTube.StripType(c.Subtitle).Split(" • ")[0], null, c.Thumb, 0);
                 await p.PlaySong(t);
                 return;
             }
@@ -100,6 +100,8 @@ public sealed class ShelvesView : ScrollPage
     private readonly bool _withChips;
     private bool _loaded;
     private string? _chipParams;
+    /// <summary>보관함 칩(재생목록 · 노래 · 앨범 …)은 다른 화면(browseId)으로 간다</summary>
+    private string? _chipBrowse;
     private readonly TextBlock _status = Theme.Text("불러오는 중…", 15, FontWeights.SemiBold, Theme.Secondary);
 
     public ShelvesView(string browseId, bool withChips)
@@ -156,7 +158,7 @@ public sealed class ShelvesView : ScrollPage
             List<Chip> chips = new();
             if (_withChips)
             {
-                var home = await InnerTube.Instance.Home(null, _chipParams);
+                var home = await InnerTube.Instance.Home(_chipBrowse ?? _browseId, _chipParams);
                 shelves = home.Shelves;
                 chips = home.Chips;
             }
@@ -196,7 +198,8 @@ public sealed class ShelvesView : ScrollPage
         row.Padding = new Thickness(Left, 24, 40, 12);
         foreach (var c in chips)
         {
-            var selected = c.Selected || (c.Params != null && c.Params == _chipParams);
+            var selected = c.Selected || (c.Params != null && c.Params == _chipParams)
+                           || (_chipBrowse != null && c.BrowseId == _chipBrowse && c.Params == _chipParams);
             var chip = new Border
             {
                 Height = 36,
@@ -212,6 +215,7 @@ public sealed class ShelvesView : ScrollPage
             chip.Tapped += (_, _) =>
             {
                 _chipParams = selected ? null : c.Params;
+                _chipBrowse = selected || c.BrowseId == _browseId ? null : c.BrowseId;
                 Reload();
             };
             row.Children.Add(chip);
@@ -256,9 +260,26 @@ public sealed class ShelvesView : ScrollPage
         if (s.Strapline != null) titles.Children.Add(Theme.Text(s.Strapline, 14, FontWeights.Normal, Theme.Secondary));
         titles.Children.Add(Theme.Text(s.Title, 22, FontWeights.ExtraBold, Theme.OnSurface));
         head.Children.Add(titles);
-        box.Children.Add(head);
+        if (s.Grid)
+        {
+            // 보관함: 줄바꿈 격자 (pear 의 보관함 화면)
+            if (s.Title.Length > 0) box.Children.Add(head);
+            var wrap = new WrapPanel { Margin = new Thickness(Left, 0, 40, 8), HSpacing = 16, VSpacing = 24 };
+            foreach (var c in s.Items)
+            {
+                var card = new CardView(c, 166);
+                card.Click += cc => Play.Card(cc, s);
+                wrap.Children.Add(card);
+            }
+            box.Children.Add(wrap);
+            return box;
+        }
+        var headRow = new Grid();
+        headRow.Children.Add(head);
+        box.Children.Add(headRow);
 
         var sv = HorizontalRow(out var row);
+        headRow.Children.Add(ShelfArrows(sv));
         row.Padding = new Thickness(Left, 0, 40, 8);
         var twoRows = s.Strapline != null || s.Title is "다시 듣기" or "Listen again";
         if (s.Tracks != null && s.Tracks.Count >= 4 && s.Tracks.Count == s.Items.Count)
@@ -302,6 +323,37 @@ public sealed class ShelvesView : ScrollPage
         return box;
     }
 
+    /// <summary>셸프 머리 오른쪽 ‹ › — 테두리만 있는 36px 동그라미, 끝에 닿으면 흐려진다 (pear 셸프 버튼)</summary>
+    private static FrameworkElement ShelfArrows(ScrollViewer sv)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 40, 16) };
+        IconButton Arrow(string icon, int dir)
+        {
+            var b = new IconButton(36) { Content = Theme.Icon(icon, 20, Colors.White, stroke: true, strokeWidth: 2) };
+            b.Children.Insert(0, new XEllipse { Stroke = Theme.B(Color.FromArgb(70, 255, 255, 255)), StrokeThickness = 1 });
+            b.Click += () => sv.ChangeView(Math.Clamp(sv.HorizontalOffset + dir * sv.ViewportWidth * 0.8, 0, sv.ScrollableWidth), null, null);
+            return b;
+        }
+        var prev = Arrow(Icons.ChevronLeft, -1);
+        var next = Arrow(Icons.ChevronRight, 1);
+        panel.Children.Add(prev);
+        panel.Children.Add(next);
+        void Update()
+        {
+            var canPrev = sv.HorizontalOffset > 1;
+            var canNext = sv.HorizontalOffset < sv.ScrollableWidth - 1;
+            panel.Visibility = sv.ScrollableWidth > 1 ? Visibility.Visible : Visibility.Collapsed;
+            prev.Opacity = canPrev ? 1 : 0.35;
+            next.Opacity = canNext ? 1 : 0.35;
+            prev.IsHitTestVisible = canPrev;
+            next.IsHitTestVisible = canNext;
+        }
+        sv.ViewChanged += (_, _) => Update();
+        sv.SizeChanged += (_, _) => Update();
+        if (sv.Content is FrameworkElement content) content.SizeChanged += (_, _) => Update();
+        return panel;
+    }
+
     /// <summary>빠른 선곡 한 줄 (436×48) — 48px 둥근 아트 · 곡명 · 가수</summary>
     private static FrameworkElement QuickRow(Track t)
     {
@@ -325,40 +377,83 @@ public sealed class ShelvesView : ScrollPage
     }
 }
 
-/// <summary>검색 결과 — 노래 목록 (유리 카드 안)</summary>
+/// <summary>
+/// 검색 결과 (pear 의 YT Music 검색과 같은 배치) — 가운데 860px 칸에
+/// 필터 칩(노래 · 동영상 · 아티스트 · 앨범 …) / 고친 검색어 / 맨 위 결과 카드(재생 · 저장) / 갈래별 목록
+/// </summary>
 public sealed class SearchView : ScrollPage
 {
-    private readonly TextBlock _header = Theme.Text("", 22, FontWeights.ExtraBold, Theme.OnSurface);
-    private readonly StackPanel _list = new();
+    private readonly StackPanel _col = new() { MaxWidth = 860, HorizontalAlignment = HorizontalAlignment.Center, Spacing = 0 };
+    private readonly StackPanel _chips = new() { Orientation = Orientation.Horizontal, Spacing = 12 };
+    private readonly StackPanel _results = new();
     private CancellationTokenSource? _cts;
+    private string _query = "";
+    private string? _filter;
 
     public SearchView()
     {
-        Body.Padding = new Thickness(Left, 32, 40, 0);
-        Body.Spacing = 16;
-        Body.Children.Add(_header);
-        var card = new Border { CornerRadius = new CornerRadius(Theme.RadiusCard), Background = Theme.B(Color.FromArgb(14, 255, 255, 255)), Padding = new Thickness(8), Child = _list, MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Left };
-        Body.Children.Add(card);
+        Body.Padding = new Thickness(40, 24, 40, 0);
+        var chipScroll = ShelvesView.HorizontalRow(out var _);
+        chipScroll.Content = _chips;
+        chipScroll.Margin = new Thickness(0, 0, 0, 16);
+        _col.Children.Add(chipScroll);
+        _col.Children.Add(_results);
+        Body.Children.Add(_col);
         Body.Children.Add(BottomSpace());
+        SizeChanged += (_, _) => _col.Width = Math.Min(860, Math.Max(0, ActualWidth - 80));
     }
 
-    public async void Search(string q)
+    public void Search(string q)
+    {
+        _query = q;
+        _filter = null;
+        Run();
+    }
+
+    private async void Run()
     {
         _cts?.Cancel();
         var cts = _cts = new CancellationTokenSource();
-        _header.Text = $"'{q}' 검색 중…";
-        _list.Children.Clear();
+        _results.Children.Clear();
+        var status = Theme.Text($"'{_query}' 검색 중…", 15, FontWeights.SemiBold, Theme.Secondary);
+        status.Margin = new Thickness(8, 8, 0, 0);
+        _results.Children.Add(status);
         try
         {
-            var results = await InnerTube.Instance.SearchSongs(q, cts.Token);
+            var data = await InnerTube.Instance.Search(_query, _filter, cts.Token);
             if (cts.IsCancellationRequested) return;
-            _header.Text = results.Count > 0 ? "노래" : $"'{q}' 검색 결과가 없어요";
-            for (var i = 0; i < results.Count; i++)
+            _results.Children.Clear();
+            BuildChips(data.Chips);
+            if (data.Corrected != null)
             {
-                var r = new TrackRow(results[i], divider: i < results.Count - 1);
-                r.Click += row => _ = PlayerService.Instance.PlaySong(row.Track);
-                _list.Children.Add(r);
-                if (i < 12) Anim.Appear(r, i * 25, 8);
+                var c = Theme.Text($"수정된 검색어에 대한 결과: {data.Corrected}", 14, FontWeights.SemiBold, Theme.Secondary);
+                c.Margin = new Thickness(8, 0, 0, 16);
+                _results.Children.Add(c);
+            }
+            if (data.Top == null && data.Sections.Count == 0)
+            {
+                status.Text = $"'{_query}' 검색 결과가 없어요";
+                _results.Children.Add(status);
+                return;
+            }
+            var delay = 0;
+            void Add(FrameworkElement el)
+            {
+                _results.Children.Add(el);
+                if (delay < 400) Anim.Appear(el, delay, 8);
+                delay += 30;
+            }
+            if (data.Top != null) Add(TopCard(data.Top));
+            foreach (var it in data.TopMore) Add(Row(it, data.TopMore));
+            foreach (var sec in data.Sections)
+            {
+                if (sec.Title.Length > 0 && (_filter == null || data.Sections.Count > 1))
+                {
+                    var h = Theme.Text(sec.Title, 22, FontWeights.ExtraBold, Theme.OnSurface);
+                    h.Margin = new Thickness(8, 32, 0, 12);
+                    Add(h);
+                }
+                foreach (var it in sec.Items) Add(Row(it, sec.Items));
             }
             Scroller.ChangeView(null, 0, null, true);
         }
@@ -366,7 +461,134 @@ public sealed class SearchView : ScrollPage
         catch (Exception e)
         {
             Log.Error("검색 실패", e);
-            _header.Text = "검색하지 못했어요. 인터넷 연결을 확인해 주세요.";
+            status.Text = "검색하지 못했어요. 인터넷 연결을 확인해 주세요.";
         }
+    }
+
+    /// <summary>필터 칩 — 고른 칩은 흰 바탕, 다시 누르면 필터 해제</summary>
+    private void BuildChips(List<Chip> chips)
+    {
+        _chips.Children.Clear();
+        foreach (var c in chips)
+        {
+            var selected = c.Selected || (_filter != null && c.Params == _filter);
+            var chip = new Border
+            {
+                Height = 36,
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(16, 0, 16, 0),
+                Background = Theme.B(selected ? Colors.White : Theme.Chip),
+                Child = Theme.Text(c.Text, 14, FontWeights.SemiBold, selected ? Colors.Black : Theme.OnSurface),
+            };
+            ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
+            chip.PointerEntered += (_, _) => { if (!selected) chip.Background = Theme.B(Theme.Selected); };
+            chip.PointerExited += (_, _) => { if (!selected) chip.Background = Theme.B(Theme.Chip); };
+            Anim.Pressable(chip, 0.94f);
+            chip.Tapped += (_, _) =>
+            {
+                _filter = selected ? null : c.Params;
+                Run();
+            };
+            _chips.Children.Add(chip);
+        }
+    }
+
+    private static void Open(SearchItem it, List<SearchItem> siblings)
+    {
+        if (it.Track is { } t)
+        {
+            _ = PlayerService.Instance.PlaySong(t);
+            return;
+        }
+        if (it.BrowseId != null) App.MainWin?.OpenBrowse(it.BrowseId);
+    }
+
+    /// <summary>맨 위 결과 — 유리 카드, 100px 아트, 큰 제목, 재생(흰 알약) · 저장(테두리 알약)</summary>
+    private FrameworkElement TopCard(SearchItem it)
+    {
+        var g = new Grid { Padding = new Thickness(20), ColumnSpacing = 16 };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var art = new Border { Width = 100, Height = 100, CornerRadius = new CornerRadius(it.Round ? 50 : 6), Background = Theme.B(Theme.Chip) };
+        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 100) };
+        Anim.V(img).Opacity = 0;
+        img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
+        art.Child = img;
+        g.Children.Add(art);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 4 };
+        text.Children.Add(Theme.Text(it.Title, 24, FontWeights.ExtraBold, Theme.OnSurface));
+        text.Children.Add(Theme.Text(it.Subtitle, 15, FontWeights.Normal, Theme.Secondary));
+        Grid.SetColumn(text, 1);
+        g.Children.Add(text);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
+        buttons.Children.Add(Pill(it.Track != null ? "재생" : "열기", true, Icons.Play, () => Open(it, new())));
+        var save = Pill("저장", false, null, () => { });
+        ToolTipService.SetToolTip(save, "재생목록에 저장은 준비 중이에요");
+        buttons.Children.Add(save);
+        Grid.SetColumn(buttons, 2);
+        g.Children.Add(buttons);
+        var card = new Border
+        {
+            CornerRadius = new CornerRadius(Theme.RadiusCard),
+            Background = Theme.B(Color.FromArgb(26, 255, 255, 255)),
+            Child = g,
+            Margin = new Thickness(0, 0, 0, 24),
+        };
+        card.Tapped += (_, _) => Open(it, new());
+        return card;
+    }
+
+    private static FrameworkElement Pill(string text, bool primary, string? icon, Action click)
+    {
+        var fg = primary ? Colors.Black : Colors.White;
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        if (icon != null) row.Children.Add(Theme.Icon(icon, 18, fg));
+        else row.Children.Add(Theme.Icon(20, fg, Icons.PlaylistAdd));
+        var label = Theme.Text(text, 14, FontWeights.SemiBold, fg);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(label);
+        var b = new Border
+        {
+            Width = 132,
+            Height = 36,
+            CornerRadius = new CornerRadius(18),
+            Background = primary ? Theme.B(Colors.White) : new SolidColorBrush(Colors.Transparent),
+            BorderBrush = primary ? null : Theme.B(Color.FromArgb(70, 255, 255, 255)),
+            BorderThickness = new Thickness(primary ? 0 : 1),
+            Child = row,
+        };
+        Anim.Pressable(b, 0.95f);
+        b.Tapped += (_, e) => { e.Handled = true; click(); };
+        return b;
+    }
+
+    /// <summary>결과 한 줄 — 56px 아트(아티스트는 동그라미), 제목 Bold, '노래 • MC몽 • 2175만회 재생'</summary>
+    private static FrameworkElement Row(SearchItem it, List<SearchItem> siblings)
+    {
+        var g = new Grid { Height = 80, Background = new SolidColorBrush(Colors.Transparent) };
+        var hover = new Border { CornerRadius = new CornerRadius(14), Background = Theme.B(Theme.ChipHover) };
+        Anim.V(hover).Opacity = 0;
+        g.Children.Add(hover);
+        var inner = new Grid { Margin = new Thickness(8, 0, 8, 0), ColumnSpacing = 16 };
+        inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var art = new Border { Width = 56, Height = 56, CornerRadius = new CornerRadius(it.Round ? 28 : 6), Background = Theme.B(Theme.Chip), VerticalAlignment = VerticalAlignment.Center };
+        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 56) };
+        Anim.V(img).Opacity = 0;
+        img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
+        art.Child = img;
+        inner.Children.Add(art);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 3 };
+        text.Children.Add(Theme.Text(it.Title, 15, FontWeights.Bold, Theme.OnSurface));
+        text.Children.Add(Theme.Text(it.Subtitle, 14, FontWeights.Normal, Theme.Secondary));
+        Grid.SetColumn(text, 1);
+        inner.Children.Add(text);
+        g.Children.Add(inner);
+        g.PointerEntered += (_, _) => Anim.Opacity(hover, 1, 160);
+        g.PointerExited += (_, _) => Anim.Opacity(hover, 0, 240);
+        Anim.Pressable(art, 0.94f);
+        g.Tapped += (_, _) => Open(it, siblings);
+        return g;
     }
 }

@@ -82,6 +82,7 @@ public sealed class PlayerView : Grid
     private readonly Grid _queueTab = new();
     private readonly TextBlock _source = Theme.Text("", 14, FontWeights.Bold, Theme.OnSurface);
     private readonly OneToggle _autoplay;
+    private Grid _autoRow = null!;
     private readonly LyricsView _lyrics = new();
     private readonly Grid _comments = new();
     private readonly ScrollViewer _related = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
@@ -150,7 +151,7 @@ public sealed class PlayerView : Grid
         Anim.Pressable(save, 0.94f);
         head.Children.Add(save);
         _queueTab.Children.Add(head);
-        var autoRow = new Grid { Height = 52, Margin = new Thickness(8, 0, 8, 4), Padding = new Thickness(8, 0, 2, 0), Background = new SolidColorBrush(Colors.Transparent) };
+        var autoRow = _autoRow = new Grid { Height = 52, Margin = new Thickness(8, 0, 8, 4), Padding = new Thickness(8, 0, 2, 0), Background = new SolidColorBrush(Colors.Transparent) };
         var autoText = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1, Margin = new Thickness(0, 0, 60, 0) };
         autoText.Children.Add(Theme.Text("자동재생", 14, FontWeights.Bold, Theme.OnSurface));
         autoText.Children.Add(Theme.Text("유사한 콘텐츠를 현재 재생목록 끝에 추가", 12, FontWeights.Normal, Theme.Secondary));
@@ -275,10 +276,28 @@ public sealed class PlayerView : Grid
                 var idx = i;
                 var row = new TrackRow(q[i], divider: i < to - 1 && i != _p.Index && i + 1 != _p.Index);
                 row.Click += r => _ = _p.PlayAt(idx);
+                row.QueueIndex = idx;
                 row.SetCurrent(i == _p.Index);
                 _rows.Add(row);
                 into.Children.Add(row);
             }
+        }
+        // 라디오: 칩이 맨 위, 목록은 하나로 (YT Music 과 같게 자동재생 줄 없음)
+        _autoRow.Visibility = _p.Radio ? Visibility.Collapsed : Visibility.Visible;
+        if (_p.Radio)
+        {
+            if (_p.AutoChips.Count > 0) _queue.Children.Add(BuildAutoChips());
+            var all = new StackPanel { Spacing = 2 };
+            AddRows(0, q.Count, all);
+            if (q.Count <= 1 && _p.AutoLoading)
+            {
+                var w = Theme.Text("비슷한 곡을 찾는 중…", 14, FontWeights.SemiBold, Theme.Secondary);
+                w.Margin = new Thickness(16, 8, 8, 8);
+                all.Children.Add(w);
+            }
+            Anim.Opacity(all, _p.AutoLoading && q.Count > 1 ? 0.45f : 1f, 220);
+            _queue.Children.Add(all);
+            return;
         }
         var user = new StackPanel { Spacing = 2 };
         AddRows(0, autoStart, user);
@@ -365,7 +384,7 @@ public sealed class PlayerView : Grid
                 var title = Theme.Text(s.Title, 18, FontWeights.ExtraBold, Theme.OnSurface);
                 title.Margin = new Thickness(8, 12, 8, 4);
                 _relatedList.Children.Add(title);
-                var items = s.Tracks ?? s.Items.Select(c => new Track(c.VideoId ?? "", c.Title, c.Subtitle, null, c.Thumb, 0)).ToList();
+                var items = s.Tracks ?? s.Items.Select(c => new Track(c.VideoId ?? "", c.Title, InnerTube.StripType(c.Subtitle), null, c.Thumb, 0)).ToList();
                 foreach (var (t, i) in items.Take(8).Select((t, i) => (t, i)))
                 {
                     var card = s.Items.ElementAtOrDefault(i);

@@ -111,6 +111,76 @@ public sealed class InnerTube
             .DistinctBy(t => t.VideoId).ToList();
     }
 
+    /// <summary>
+    /// YT Music 검색 그대로 — 필터 없이 부르면 맨 위 결과 카드 + 노래 · 동영상 · 앨범 … 갈래,
+    /// 칩(필터)의 params 로 부르면 그 갈래만
+    /// </summary>
+    public async Task<SearchData> Search(string query, string? @params = null, CancellationToken ct = default)
+    {
+        var body = new JsonObject { ["query"] = query };
+        if (@params != null) body["params"] = @params;
+        var json = await Post("search", body, ct);
+        var chips = json.FindAll("chipCloudChipRenderer").Select(c => new Chip(
+            c.P("text").Text(), null,
+            c.P("navigationEndpoint", "searchEndpoint", "params").Str(),
+            c.P("isSelected")?.GetValue<bool>() == true)).Where(c => c.Text.Length > 0).ToList();
+
+        SearchItem? top = null;
+        var topMore = new List<SearchItem>();
+        if (json.FindFirst("musicCardShelfRenderer") is { } card)
+        {
+            var titleRun = card.P("title", "runs", 0);
+            var nav = titleRun.P("navigationEndpoint");
+            var sub = card.P("subtitle");
+            var subText = sub.Text();
+            var thumb = card.P("thumbnail").BestThumb();
+            var videoId = nav.P("watchEndpoint", "videoId").Str();
+            Track? track = null;
+            if (videoId != null)
+            {
+                var segs = subText.Split(" • ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                if (segs.Count > 0 && TypeLabels.Contains(segs[0])) segs.RemoveAt(0);
+                var time = segs.FirstOrDefault(x => TimeRx.IsMatch(x));
+                if (time != null) segs.Remove(time);
+                track = new Track(videoId, card.P("title").Text(), segs.FirstOrDefault() ?? "", null, thumb, Fmt.ParseTime(time), ArtistOf(sub), AlbumOf(sub));
+            }
+            top = new SearchItem(card.P("title").Text(), subText, thumb,
+                nav.P("browseEndpoint", "browseId").Str(), PageTypeOf(nav.P("browseEndpoint")), track);
+            if (card.P("contents") is JsonArray cc)
+                topMore = cc.Select(x => x.P("musicResponsiveListItemRenderer")).OfType<JsonNode>().Select(ParseSearchItem).OfType<SearchItem>().ToList();
+        }
+        var sections = new List<SearchSection>();
+        foreach (var shelf in json.FindAll("musicShelfRenderer"))
+        {
+            var items = (shelf.P("contents") as JsonArray ?? new JsonArray()).Select(x => x.P("musicResponsiveListItemRenderer"))
+                .OfType<JsonNode>().Select(ParseSearchItem).OfType<SearchItem>().ToList();
+            if (items.Count > 0) sections.Add(new SearchSection(shelf.P("title").Text(), items));
+        }
+        var corrected = json.FindFirst("showingResultsForRenderer").P("correctedQuery").Text();
+        return new SearchData(top, topMore, sections, chips, corrected.Length > 0 ? corrected : null);
+    }
+
+    /// <summary>검색 결과 한 줄 — 곡이면 Track 도 같이, 앨범 · 아티스트 · 플레이리스트면 browseId</summary>
+    private static SearchItem? ParseSearchItem(JsonNode item)
+    {
+        var cols = item.P("flexColumns") as JsonArray;
+        var title = cols.P(0, "musicResponsiveListItemFlexColumnRenderer", "text").Text();
+        if (string.IsNullOrWhiteSpace(title)) return null;
+        var sub = string.Join(" • ", (cols ?? new JsonArray()).Skip(1)
+            .Select(c => c.P("musicResponsiveListItemFlexColumnRenderer", "text").Text()).Where(x => x.Length > 0));
+        var be = item.P("navigationEndpoint", "browseEndpoint");
+        var track = be == null ? ParseResponsive(item) : null;
+        if (track == null && be == null) return null;
+        return new SearchItem(title, sub, item.P("thumbnail").BestThumb(), be.P("browseId").Str(), PageTypeOf(be), track);
+    }
+
+    /// <summary>로그인한 계정의 프로필 사진</summary>
+    public async Task<string?> AccountPhoto(CancellationToken ct = default)
+    {
+        var json = await Post("account/account_menu", new JsonObject(), ct);
+        return json.FindFirst("accountPhoto").BestThumb();
+    }
+
     public async Task<List<string>> Suggestions(string input, CancellationToken ct = default)
     {
         var json = await Post("music/get_search_suggestions", new JsonObject { ["input"] = input }, ct);
@@ -166,7 +236,7 @@ public sealed class InnerTube
         {
             var title = grid.P("header", "gridHeaderRenderer", "title").Text();
             var (cards, tracks) = ParseItems(grid.P("items") as JsonArray);
-            if (cards.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "보관함", cards, tracks.Count > 0 ? tracks : null));
+            if (cards.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "", cards, tracks.Count > 0 ? tracks : null) { Grid = true });
         }
         foreach (var ms in json.FindAll("musicShelfRenderer"))
         {
@@ -333,7 +403,10 @@ public sealed class InnerTube
             tracksTitle.Length > 0 ? tracksTitle : null,
             more,
             ParseShelves(json, lists: false),
-            play, radio);
+            play, radio)
+        {
+            StraplineThumb = header.P("straplineThumbnail").BestThumb(),
+        };
     }
 
     // ───────────────────────── 파싱 ─────────────────────────
@@ -350,6 +423,14 @@ public sealed class InnerTube
 
     private static readonly Regex TimeRx = new(@"^\d{1,2}(:\d{2}){1,2}$", RegexOptions.Compiled);
     private static readonly string[] TypeLabels = ["노래", "동영상", "Song", "Video", "에피소드", "Episode"];
+
+    /// <summary>'노래 • MC몽' 처럼 앞에 붙은 종류 글자를 뗀다</summary>
+    public static string StripType(string subtitle)
+    {
+        foreach (var label in TypeLabels)
+            if (subtitle.StartsWith(label + " • ")) return subtitle[(label.Length + 3)..];
+        return subtitle;
+    }
 
     private static Track? ParseResponsive(JsonNode item)
     {
@@ -410,8 +491,6 @@ public sealed class InnerTube
         var title = two.P("title").Text();
         if (string.IsNullOrWhiteSpace(title)) return null;
         var subtitle = two.P("subtitle").Text();
-        foreach (var label in TypeLabels)
-            if (subtitle.StartsWith(label + " • ")) subtitle = subtitle[(label.Length + 3)..];
         var thumbs = two.P("thumbnailRenderer").FindFirst("thumbnails") as JsonArray;
         var best = thumbs?.LastOrDefault();
         var w = (int?)best?["width"]?.GetValue<double>() ?? 1;
