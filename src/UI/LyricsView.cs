@@ -1,3 +1,5 @@
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Effects;
 using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using OneMusic.Core;
@@ -89,14 +91,22 @@ public sealed class LyricsState
 }
 
 /// <summary>
-/// 재생 화면의 실시간 가사 — Win2D 로 직접 그린다.
-/// 지금 줄이 위에서 1/3 지점에 오도록 부드럽게 스크롤, 위 · 아래 끝은 그라데이션으로 흐려지고, 줄을 누르면 그 위치로 이동.
+/// 재생 화면의 실시간 가사 — Win2D 로 직접 그린다. pear synced-lyrics 'fancy' + One UI 테마(21 · 50) 값 그대로:
+///  · 글자 22px, 줄 사이 여유(위아래 8 + 2), 지금 줄이 화면 가운데에 오도록 부드럽게 스크롤
+///  · 다른 줄: Bold(700) · 투명도 0.3 · 크기 0.96 (왼쪽 기준) / 지금 줄: ExtraBold(800) · 1 · 1 — 440ms 로 바뀜
+///  · 지금 줄은 앨범 색 빛(text-shadow 24px)이 줄 길이 동안 사그라들고, 그 절반 동안 ±1.75px 살짝 흔들린다
+///  · 마우스를 올린 줄은 둥근 옅은 바탕, 누르면 그 위치로 이동. 위 · 아래 끝은 흐려진다
+///  · 시간 없는 가사(YT Music 글자 가사 등)는 전부 밝게, 휠로 넘긴다
 /// </summary>
 public sealed class LyricsView : Grid
 {
     private const float FontSize = 22;
-    private const float LineGap = 18;
+    private const float LineGap = 20;
     private const float FadeTop = 44, FadeBottom = 56;
+    private const float Inset = 12;
+
+    /// <summary>빛 색 (앨범 색) — MainWindow 가 곡이 바뀔 때 넣는다</summary>
+    public static Color Glow { get; set; } = Colors.White;
 
     private readonly CanvasControl _canvas = new();
     private readonly TextBlock _empty;
@@ -106,9 +116,12 @@ public sealed class LyricsView : Grid
     private readonly List<(float Top, float Height)> _layout = new();
     private float _layoutWidth = -1;
     private List<LyricLine>? _layoutLines;
-    private readonly float[] _glow = new float[2048];
+    private readonly float[] _glow = new float[4096];
     private long _last;
     private bool _active;
+    private int _current = -1;
+    private long _currentAt;
+    private int _hover = -1;
 
     public LyricsView()
     {
@@ -123,6 +136,8 @@ public sealed class LyricsView : Grid
         Loaded += (_, _) => { CompositionTarget.Rendering += OnFrame; OnLyricsChanged(); };
         Unloaded += (_, _) => CompositionTarget.Rendering -= OnFrame;
         Tapped += OnTapped;
+        PointerMoved += (_, e) => _hover = LineAt((float)e.GetCurrentPoint(this).Position.Y);
+        PointerExited += (_, _) => _hover = -1;
         PointerWheelChanged += (_, e) =>
         {
             _userOffset -= e.GetCurrentPoint(this).Properties.MouseWheelDelta * 0.6f;
@@ -147,12 +162,23 @@ public sealed class LyricsView : Grid
     {
         var s = LyricsState.Instance;
         _empty.Text = s.Loading ? "가사를 불러오는 중…" : s.Lines == null ? (s.ForVideo == null ? "" : "이 출처에서 가사를 찾지 못했어요") : "";
-        _scroll = s.Synced ? _scroll : 0;
         _layoutLines = null;
         _userOffset = 0;
+        _current = -1;
+        if (!s.Synced) _scroll = 0;
         Array.Clear(_glow);
         _canvas.Invalidate();
     }
+
+    private static CanvasTextFormat Format(bool active) => new()
+    {
+        FontFamily = Win2DFont.Family,
+        FontSize = FontSize,
+        FontWeight = active ? FontWeights.ExtraBold : FontWeights.Bold,
+        WordWrapping = CanvasWordWrapping.WholeWord,
+        LineSpacingMode = CanvasLineSpacingMode.Proportional,
+        LineSpacing = 1.3f,
+    };
 
     private void EnsureLayout(CanvasControl sender, float width)
     {
@@ -163,7 +189,7 @@ public sealed class LyricsView : Grid
         _layout.Clear();
         if (lines == null) return;
         var y = 0f;
-        using var fmt = Format();
+        using var fmt = Format(true);
         foreach (var l in lines)
         {
             using var tl = new CanvasTextLayout(sender, string.IsNullOrEmpty(l.Text) ? "♪" : l.Text, fmt, width, 9999);
@@ -172,14 +198,6 @@ public sealed class LyricsView : Grid
             y += h + LineGap;
         }
     }
-
-    private static CanvasTextFormat Format() => new()
-    {
-        FontFamily = "Pretendard Variable",
-        FontSize = FontSize,
-        FontWeight = FontWeights.Bold,
-        WordWrapping = CanvasWordWrapping.WholeWord,
-    };
 
     private void OnFrame(object? sender, object e)
     {
@@ -194,64 +212,108 @@ public sealed class LyricsView : Grid
         if (!synced) _userOffset = Math.Clamp(_userOffset, 0, Math.Max(0, (_layout.Count > 0 ? _layout[^1].Top + _layout[^1].Height : 0) - (float)ActualHeight + 80));
         var p = PlayerService.Instance;
         var idx = LyricsState.Instance.IndexAt(p.Position + 0.15);
+        if (idx != _current) { _current = idx; _currentAt = now; }
         if (idx >= 0 && idx < _layout.Count)
         {
             var (top, h) = _layout[idx];
-            _scrollTarget = top + h / 2 - (float)ActualHeight / 3;
+            // 지금 줄이 가운데에 (pear: scrollToIndex align center)
+            _scrollTarget = top + h / 2 - (float)ActualHeight / 2;
         }
-        else _scrollTarget = synced ? -(float)ActualHeight / 3 + 20 : -8;
+        else _scrollTarget = synced ? -(float)ActualHeight / 2 + 40 : -8;
         var target = _scrollTarget + _userOffset;
-        _scroll += (target - _scroll) * (1 - MathF.Exp(-dt / 0.12f));
+        _scroll += (target - _scroll) * (1 - MathF.Exp(-dt / 0.14f));
+        // 줄 상태 전환 440ms (ease) ≈ 시간 상수 0.11초
         for (var i = 0; i < _layout.Count && i < _glow.Length; i++)
         {
             var want = i == idx || !synced ? 1f : 0f;
-            _glow[i] += (want - _glow[i]) * (1 - MathF.Exp(-dt / 0.1f));
+            _glow[i] += (want - _glow[i]) * (1 - MathF.Exp(-dt / 0.11f));
         }
         _canvas.Invalidate();
+    }
+
+    private int LineAt(float y)
+    {
+        y += _scroll;
+        for (var i = 0; i < _layout.Count; i++)
+        {
+            var (top, lh) = _layout[i];
+            if (y >= top - LineGap / 2 && y <= top + lh + LineGap / 2) return i;
+        }
+        return -1;
     }
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         var lines = LyricsState.Instance.Lines;
         if (lines == null) return;
-        var w = (float)ActualWidth - 48;
+        var w = (float)ActualWidth - Inset * 2 - 8;
         var h = (float)ActualHeight;
         if (w <= 0) return;
         EnsureLayout(sender, w);
         var ds = args.DrawingSession;
-        using var fmt = Format();
+        var synced = LyricsState.Instance.Synced;
+        using var fmtOff = Format(false);
+        using var fmtOn = Format(true);
+        var now = Environment.TickCount64;
         for (var i = 0; i < _layout.Count; i++)
         {
             var (top, lh) = _layout[i];
             var y = top - _scroll;
-            if (y + lh < -10 || y > h + 10) continue;
+            if (y + lh < -24 || y > h + 24) continue;
             // 위 · 아래 끝에서는 흐려진다
-            var edge = Math.Min(1f, Math.Min((y + lh) / FadeTop, (h - y) / FadeBottom));
-            edge = Math.Clamp(edge, 0, 1);
+            var edge = Math.Clamp(Math.Min((y + lh) / FadeTop, (h - y) / FadeBottom), 0, 1);
+            if (edge <= 0.01f) continue;
             var g = _glow[i];
-            var alpha = (0.32f + 0.68f * g) * edge;
-            if (alpha <= 0.01f) continue;
             var text = string.IsNullOrEmpty(lines[i].Text) ? "♪" : lines[i].Text;
-            using var tl = new CanvasTextLayout(sender, text, fmt, w, 9999);
-            ds.DrawTextLayout(tl, 24, y, Colors.White.WithAlpha(alpha));
+            var isCurrent = synced && i == _current;
+
+            // 마우스를 올린 줄: 둥근(16) 옅은 바탕
+            if (i == _hover && synced)
+                ds.FillRoundedRectangle(4, y - 8, (float)ActualWidth - 16, lh + 16, 16, 16, Color.FromArgb((byte)(15 * edge), 255, 255, 255));
+
+            var alpha = (0.3f + 0.7f * g) * edge;
+            var scale = 0.96f + 0.04f * g;
+            var wobble = 0f;
+            var glowAmt = 0f;
+            if (isCurrent)
+            {
+                var dur = Math.Clamp(LineDuration(lines, i), 600, 6000);
+                var t = (now - _currentAt) / (float)dur;
+                glowAmt = Math.Clamp(1 - t, 0, 1);
+                // lyrics-wobble: 줄 길이의 절반 동안 0 → +1.75 → −1.75 → 0
+                var wt = Math.Clamp(t * 2, 0, 1);
+                wobble = wt < 1 / 3f ? 1.75f * wt * 3 : wt < 2 / 3f ? 1.75f - 3.5f * (wt - 1 / 3f) * 3 : -1.75f + 1.75f * (wt - 2 / 3f) * 3;
+            }
+            using var tl = new CanvasTextLayout(sender, text, isCurrent || !synced ? fmtOn : fmtOff, w, 9999);
+            var x = Inset;
+            var oldTransform = ds.Transform;
+            // 크기는 왼쪽 가운데 기준 (transform-origin: 0 50%)
+            ds.Transform = Matrix3x2.CreateScale(scale, scale, new Vector2(x, y + lh / 2)) * oldTransform;
+            if (glowAmt > 0.01f && Glow.A > 0)
+            {
+                // 앨범 색 빛 (text-shadow 0 0 1.5rem, 70%) — 줄 길이 동안 0 으로
+                using var cl = new CanvasCommandList(sender);
+                using (var cds = cl.CreateDrawingSession())
+                    cds.DrawTextLayout(tl, 0, 0, Color.FromArgb((byte)(178 * edge), Glow.R, Glow.G, Glow.B));
+                using var blur = new GaussianBlurEffect { Source = cl, BlurAmount = 12 * glowAmt, BorderMode = EffectBorderMode.Soft };
+                ds.DrawImage(blur, x, y + wobble);
+            }
+            ds.DrawTextLayout(tl, x, y + wobble, Colors.White.WithAlpha(alpha));
+            ds.Transform = oldTransform;
         }
     }
+
+    private static int LineDuration(List<LyricLine> lines, int i) =>
+        i + 1 < lines.Count ? lines[i + 1].TimeMs - lines[i].TimeMs : 2000;
 
     private void OnTapped(object sender, TappedRoutedEventArgs e)
     {
         var lines = LyricsState.Instance.Lines;
         if (lines == null || !LyricsState.Instance.Synced) return;
-        var y = (float)e.GetPosition(this).Y + _scroll;
-        for (var i = 0; i < _layout.Count; i++)
-        {
-            var (top, lh) = _layout[i];
-            if (y >= top - LineGap / 2 && y <= top + lh + LineGap / 2)
-            {
-                PlayerService.Instance.Seek(lines[i].TimeMs / 1000.0 + 0.01);
-                _userOffset = 0;
-                return;
-            }
-        }
+        var i = LineAt((float)e.GetPosition(this).Y);
+        if (i < 0) return;
+        PlayerService.Instance.Seek(lines[i].TimeMs / 1000.0 + 0.01);
+        _userOffset = 0;
     }
 }
 
@@ -269,7 +331,8 @@ public sealed class LyricsSourceBar : Grid
     public LyricsSourceBar()
     {
         Height = 70;
-        CornerRadius = new CornerRadius(20);
+        // pear 21: 가사 출처 카드 — 칩 색, 16px 둥근 모서리, 테두리 없음
+        CornerRadius = new CornerRadius(16);
         Background = Theme.B(Theme.Chip);
         Margin = new Thickness(0, 6, 0, 8);
         var prev = new IconButton(36) { Content = Theme.Icon(Icons.ChevronLeft, 20, Colors.White, stroke: true, strokeWidth: 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(24, 0, 0, 0) };

@@ -456,6 +456,7 @@ public sealed class MainWindow : Window
         if (Player.Current?.VideoId != t.VideoId) return;
         _accent = c;
         Bar.SetAccent(c);
+        LyricsView.Glow = c;
         SetWash(c, true);
     }
 
