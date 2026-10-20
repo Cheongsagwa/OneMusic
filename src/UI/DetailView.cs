@@ -187,7 +187,7 @@ public sealed class DetailView : ScrollPage
         var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(page.Thumb, size) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
-        art.Child = img;
+        art.Child = Shimmer.Wrap(img);
         g.Children.Add(art);
 
         var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 6, MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
@@ -262,7 +262,7 @@ public sealed class DetailView : ScrollPage
         var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(page.Thumb, 264) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
-        art.Child = img;
+        art.Child = Shimmer.Wrap(img);
         left.Children.Add(art);
         var title = Theme.Text(page.Title, 32, FontWeights.ExtraBold, Theme.OnSurface, 2);
         title.TextAlignment = TextAlignment.Center;

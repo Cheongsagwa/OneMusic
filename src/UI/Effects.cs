@@ -283,3 +283,76 @@ public static class Win2DFont
         }
     }
 }
+
+/// <summary>
+/// 그림을 불러오는 동안 빛이 지나가는 임시 배경 (pear 65 oneui-shimmer) — 다 불러오면 빛은 사라지고 그림이 페이드인.
+/// 빛 띠는 칸 폭의 두 배짜리 그라데이션이 150% → −50% 로 흘러간다 (1.6초 반복).
+/// 흘러가는 값 하나(T)를 모든 칸이 같이 쓰므로 카드가 수백 개여도 애니메이션은 하나다
+/// </summary>
+public static class Shimmer
+{
+    private static CompositionPropertySet? _clock;
+    private static CompositionLinearGradientBrush? _brush;
+
+    /// <summary>img 를 빛 지나가는 칸과 겹쳐 담은 Grid 를 돌려준다 (그림이 열리거나 실패하면 빛은 지운다)</summary>
+    public static Grid Wrap(Image img)
+    {
+        var g = new Grid();
+        var host = new Grid { IsHitTestVisible = false };
+        g.Children.Add(host);
+        g.Children.Add(img);
+        if (!Anim.Enabled) return g;
+        SpriteVisual? sprite = null;
+        void Done()
+        {
+            if (sprite == null) { host.Visibility = Visibility.Collapsed; return; }
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            sprite.Dispose();
+            sprite = null;
+            host.Visibility = Visibility.Collapsed;
+        }
+        host.Loaded += (_, _) =>
+        {
+            if (host.Visibility != Visibility.Visible || sprite != null) return;
+            var hv = Anim.V(host);
+            var c = hv.Compositor;
+            Ensure(c);
+            sprite = c.CreateSpriteVisual();
+            sprite.Brush = _brush;
+            // 칸 폭 두 배 (background-size 200%) · 위치는 −w × (1.5 − 2T)
+            var size = c.CreateExpressionAnimation("Vector2(host.Size.X * 2, host.Size.Y)");
+            size.SetReferenceParameter("host", hv);
+            sprite.StartAnimation("Size", size);
+            var offset = c.CreateExpressionAnimation("Vector3(-host.Size.X * (1.5 - 2 * clock.T), 0, 0)");
+            offset.SetReferenceParameter("host", hv);
+            offset.SetReferenceParameter("clock", _clock!);
+            sprite.StartAnimation("Offset", offset);
+            hv.Clip = c.CreateInsetClip();
+            ElementCompositionPreview.SetElementChildVisual(host, sprite);
+        };
+        img.ImageOpened += (_, _) => Done();
+        img.ImageFailed += (_, _) => Done();
+        host.Unloaded += (_, _) => Done();
+        return g;
+    }
+
+    private static void Ensure(Compositor c)
+    {
+        if (_clock != null) return;
+        _clock = c.CreatePropertySet();
+        _clock.InsertScalar("T", 0);
+        var run = c.CreateScalarKeyFrameAnimation();
+        run.InsertKeyFrame(0f, 0f);
+        run.InsertKeyFrame(1f, 1f, c.CreateLinearEasingFunction());
+        run.Duration = TimeSpan.FromMilliseconds(1600);
+        run.IterationBehavior = AnimationIterationBehavior.Forever;
+        _clock.StartAnimation("T", run);
+        // linear-gradient(100deg, transparent 30%, 흰 8% 50%, transparent 70%)
+        _brush = c.CreateLinearGradientBrush();
+        _brush.StartPoint = new Vector2(0, 0.4f);
+        _brush.EndPoint = new Vector2(1, 0.6f);
+        _brush.ColorStops.Add(c.CreateColorGradientStop(0.3f, Color.FromArgb(0, 255, 255, 255)));
+        _brush.ColorStops.Add(c.CreateColorGradientStop(0.5f, Color.FromArgb(22, 255, 255, 255)));
+        _brush.ColorStops.Add(c.CreateColorGradientStop(0.7f, Color.FromArgb(0, 255, 255, 255)));
+    }
+}

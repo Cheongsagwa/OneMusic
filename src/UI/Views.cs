@@ -602,7 +602,7 @@ public sealed class ShelvesView : ScrollPage
         var img = new Image { Width = 48, Height = 48, Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 86) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
-        art.Child = img;
+        art.Child = Shimmer.Wrap(img);
         g.Children.Add(art);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2, Margin = new Thickness(8, 0, 0, 0) };
         if (t.Rank != null)
@@ -806,7 +806,7 @@ public sealed class SearchView : ScrollPage
         var img = new Image { Width = 100, Height = 100, Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 178) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
-        art.Child = img;
+        art.Child = Shimmer.Wrap(img);
         g.Children.Add(art);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 4 };
         text.Children.Add(Theme.Text(it.Title, 24, FontWeights.ExtraBold, Theme.OnSurface));
@@ -925,7 +925,7 @@ public sealed class SearchView : ScrollPage
         var img = new Image { Width = 56, Height = 56, Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 100) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
-        art.Child = img;
+        art.Child = Shimmer.Wrap(img);
         inner.Children.Add(art);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 3 };
         text.Children.Add(Theme.Text(it.Title, 15, FontWeights.Bold, Theme.OnSurface));
@@ -948,8 +948,9 @@ public sealed class SearchView : ScrollPage
             overlay = new Border { CornerRadius = art.CornerRadius, Background = Theme.B(Color.FromArgb(97, 0, 0, 0)), Child = Theme.Icon(Icons.Play, 22, Colors.White), IsHitTestVisible = false };
             Anim.V(overlay).Opacity = 0;
             var artGrid = new Grid();
+            var pic = art.Child;
             art.Child = null;
-            artGrid.Children.Add(img);
+            artGrid.Children.Add(pic);
             artGrid.Children.Add(overlay);
             art.Child = artGrid;
         }

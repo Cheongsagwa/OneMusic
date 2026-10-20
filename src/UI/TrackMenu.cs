@@ -220,24 +220,13 @@ public static class TrackMenu
     /// </summary>
     private static async Task<bool> Confirm(JsonNode dialog, FrameworkElement at)
     {
-        if (at.XamlRoot == null) return false;
         var title = dialog.P("title").Text();
         var message = dialog.P("dialogMessages") is JsonArray msgs ? string.Join("\n", msgs.Select(m => m.Text()).Where(x => x.Length > 0)) : "";
         var ok = dialog.P("confirmButton").FindFirst("text").Text();
         var cancel = dialog.P("cancelButton").FindFirst("text").Text();
-        var dlg = new ContentDialog
-        {
-            XamlRoot = at.XamlRoot,
-            Title = title.Length > 0 ? title : "계속할까요?",
-            Content = message.Length > 0 ? Theme.Text(message, 15, FontWeights.Normal, Theme.Secondary, 6) : null,
-            PrimaryButtonText = ok.Length > 0 ? ok : "확인",
-            CloseButtonText = cancel.Length > 0 ? cancel : "취소",
-            DefaultButton = ContentDialogButton.Close,
-            CornerRadius = new CornerRadius(28),
-            Background = Theme.Glass(0.78, Color.FromArgb(255, 46, 46, 48), blur: 40),
-            RequestedTheme = ElementTheme.Dark,
-        };
-        return await dlg.ShowAsync() == ContentDialogResult.Primary;
+        return await OneDialog.Show(title.Length > 0 ? title : "계속할까요?",
+            message.Length > 0 ? Theme.Text(message, 15, FontWeights.Normal, Theme.Secondary, 6) : null,
+            ok.Length > 0 ? ok : "확인", cancel.Length > 0 ? cancel : "취소");
     }
 
     /// <summary>
@@ -521,25 +510,29 @@ public static class TrackMenu
     }
 }
 
-/// <summary>한 줄 입력 대화상자 (새 재생목록 이름 등) — One UI 유리 대화상자</summary>
+/// <summary>한 줄 입력 대화상자 (새 재생목록 이름 등) — One UI 유리 대화상자, Enter = 확인</summary>
 public static class Prompt
 {
     public static async Task<string?> Ask(XamlRoot? root, string title, string placeholder, string primary = "만들기", string? initial = null)
     {
-        if (root == null) return null;
-        var box = new TextBox { PlaceholderText = placeholder, FontFamily = Theme.Font, FontSize = 15, MinWidth = 320, Text = initial ?? "" };
-        var dlg = new ContentDialog
+        var box = new TextBox { PlaceholderText = placeholder, FontFamily = Theme.Font, FontSize = 15, Text = initial ?? "", CornerRadius = new CornerRadius(14) };
+        box.Resources["TextControlBackground"] = Theme.B(Color.FromArgb(20, 255, 255, 255));
+        box.Resources["TextControlBackgroundPointerOver"] = Theme.B(Color.FromArgb(28, 255, 255, 255));
+        box.Resources["TextControlBackgroundFocused"] = Theme.B(Color.FromArgb(28, 255, 255, 255));
+        box.Resources["TextControlBorderBrush"] = new SolidColorBrush(Colors.Transparent);
+        box.Resources["TextControlBorderBrushPointerOver"] = new SolidColorBrush(Colors.Transparent);
+        box.Resources["TextControlBorderBrushFocused"] = Theme.B(Colors.White);
+        box.Resources["TextControlForegroundFocused"] = Theme.B(Colors.White);
+        var ok = await OneDialog.Show(title, box, primary, ready: confirm =>
         {
-            XamlRoot = root,
-            Title = title,
-            Content = box,
-            PrimaryButtonText = primary,
-            CloseButtonText = "취소",
-            DefaultButton = ContentDialogButton.Primary,
-            CornerRadius = new CornerRadius(28),
-            Background = Theme.Glass(0.78, Color.FromArgb(255, 46, 46, 48), blur: 40),
-            RequestedTheme = ElementTheme.Dark,
-        };
-        return await dlg.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key != Windows.System.VirtualKey.Enter) return;
+                e.Handled = true;
+                confirm();
+            };
+            box.Loaded += (_, _) => { box.Focus(FocusState.Programmatic); box.SelectAll(); };
+        });
+        return ok ? box.Text : null;
     }
 }

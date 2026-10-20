@@ -47,7 +47,7 @@ public sealed class TrackRow : Grid
             var img = new Image { Width = 44, Height = 44, Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 78) };
             Anim.V(img).Opacity = 0;
             img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
-            art.Child = img;
+            art.Child = Shimmer.Wrap(img);
             _artBox.Children.Add(art);
             // 마우스를 올리면 아트 위에 옅은 덮개 + 재생 아이콘 (pear 80: rgb(0 0 0 / 0.38), 아트와 같은 둥근 모양)
             _playOverlay = new Border
@@ -278,7 +278,7 @@ public sealed class CardView : StackPanel
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
         // 마우스를 올리면: 위쪽만 어둡게(0.55 → 0, 45%) + 오른쪽 위 ⋮ + 오른쪽 아래 재생 (YT Music 카드 · pear 57)
         var artGrid = new Grid();
-        artGrid.Children.Add(img);
+        artGrid.Children.Add(Shimmer.Wrap(img));
         var shade = new XRect { IsHitTestVisible = false };
         var grad = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
         grad.GradientStops.Add(new GradientStop { Color = Color.FromArgb(140, 0, 0, 0), Offset = 0 });

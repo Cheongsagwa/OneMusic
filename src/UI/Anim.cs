@@ -18,6 +18,20 @@ public static class Anim
     public const int Fast = 220, Medium = 440, Morph = 560;
     public const float PressedScale = 0.9f;
 
+    /// <summary>
+    /// 윈도우 설정 '애니메이션 효과' 를 끈 사람에겐 움직임을 거의 바로 끝낸다 (pear: prefers-reduced-motion → 1ms)
+    /// </summary>
+    public static bool Enabled { get; } = ReadEnabled();
+
+    private static bool ReadEnabled()
+    {
+        try { return new Windows.UI.ViewManagement.UISettings().AnimationsEnabled; }
+        catch { return true; }
+    }
+
+    /// <summary>애니메이션 길이 (움직임 줄이기면 1ms)</summary>
+    public static int D(int ms) => Enabled ? ms : 1;
+
     private static CompositionEasingFunction? _smooth, _linear;
     public static CompositionEasingFunction Smooth(Compositor c) =>
         _smooth ??= c.CreateCubicBezierEasingFunction(new Vector2(0.22f, 1f), new Vector2(0.36f, 1f));
@@ -50,6 +64,8 @@ public static class Anim
 
     private static ScalarKeyFrameAnimation MakeScalar(Compositor c, float to, float[] curve, int ms, int delayMs)
     {
+        ms = D(ms);
+        if (!Enabled) delayMs = 0;
         var a = c.CreateScalarKeyFrameAnimation();
         for (var i = 1; i < curve.Length; i++)
             a.InsertExpressionKeyFrame((float)i / (curve.Length - 1), $"this.StartingValue + ({F(to)} - this.StartingValue) * {F(curve[i])}", Linear(c));
@@ -60,6 +76,8 @@ public static class Anim
 
     private static Vector3KeyFrameAnimation MakeVec(Compositor c, Vector3 to, float[] curve, int ms, int delayMs)
     {
+        ms = D(ms);
+        if (!Enabled) delayMs = 0;
         var a = c.CreateVector3KeyFrameAnimation();
         var target = $"Vector3({F(to.X)}, {F(to.Y)}, {F(to.Z)})";
         for (var i = 1; i < curve.Length; i++)
@@ -147,13 +165,15 @@ public static class Anim
         var v = V(el);
         var a = v.Compositor.CreateVector3KeyFrameAnimation();
         a.InsertKeyFrame(1f, to, Decel(v.Compositor));
-        a.Duration = TimeSpan.FromMilliseconds(ms);
+        a.Duration = TimeSpan.FromMilliseconds(D(ms));
         v.StartAnimation("Translation", a);
     }
 
     /// <summary>pear oneui-rise 720ms cubic-bezier(.22,1,.36,1): 14px 아래에서 떠오르며 나타남</summary>
     public static void Rise(UIElement el, int delayMs, int ms = 720)
     {
+        ms = D(ms);
+        if (!Enabled) delayMs = 0;
         var v = V(el);
         var c = v.Compositor;
         v.Opacity = 0;
@@ -217,6 +237,19 @@ public static class Anim
         v.Scale = new Vector3(0.92f, 0.92f, 1);
         v.StartAnimation("Opacity", Scalar(v.Compositor, 1, SmoothCurve, Medium, delayMs));
         v.StartAnimation("Scale", Vec(v.Compositor, Vector3.One, Ease, Medium, delayMs));
+    }
+
+    /// <summary>대화상자 — pear: oneui-pop 을 morph 560ms 스프링으로 (가운데 기준)</summary>
+    public static void PopSpring(FrameworkElement el)
+    {
+        var v = V(el);
+        var s = el.ActualSize;
+        if (s.X <= 0) s = new Vector2((float)el.DesiredSize.Width, (float)el.DesiredSize.Height);
+        v.CenterPoint = new Vector3(s.X / 2, s.Y / 2, 0);
+        v.Opacity = 0;
+        v.Scale = new Vector3(0.92f, 0.92f, 1);
+        v.StartAnimation("Opacity", Scalar(v.Compositor, 1, SmoothCurve, Medium, 0));
+        v.StartAnimation("Scale", Vec(v.Compositor, Vector3.One, Spring, Morph, 0));
     }
 
     /// <summary>누르면 0.9 로 줄었다가 놓으면 스프링으로 (pear: --oneui-pressed-scale 0.9)</summary>

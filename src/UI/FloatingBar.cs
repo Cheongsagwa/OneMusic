@@ -20,6 +20,9 @@ public sealed class FloatingBar : Grid
     private readonly Marquee _lyricText = new(14, FontWeights.Bold, Theme.OnSurface);
     private readonly Grid _playIcon = new();
     private readonly PlayPauseIcon _pp = new(28, Colors.Black);
+    /// <summary>곡을 불러오는 동안 재생 버튼 흰 원 안의 검은 로딩 (pear 37)</summary>
+    private readonly ProgressRing _spin = new() { Width = 26, Height = 26, IsActive = false, Foreground = Theme.B(Colors.Black), IsHitTestVisible = false };
+    private bool _spinning;
     private readonly VolumeIcon _vol = new(24, Colors.White);
     private readonly RepeatIcon _rep = new(24, Colors.White);
     private readonly ShuffleIcon _shuf = new(24, Colors.White);
@@ -34,6 +37,7 @@ public sealed class FloatingBar : Grid
     private DispatcherQueueTimer? _volCloseTimer;
     private string? _shownLine;
     private bool _wasPlaying;
+    private long? _busySince;
     public event Action? OpenPlayer;
     private readonly DispatcherQueueTimer _tick; // 필드로 붙잡아 둬야 GC 에 수거되지 않는다
 
@@ -73,6 +77,8 @@ public sealed class FloatingBar : Grid
         var circle = new XEllipse { Fill = Theme.B(Colors.White), Width = 52, Height = 52 };
         _playIcon.Children.Add(circle);
         _playIcon.Children.Add(_pp);
+        Anim.V(_spin).Opacity = 0;
+        _playIcon.Children.Add(_spin);
         play.Content = _playIcon;
         play.Margin = new Thickness(4, 0, 4, 0);
         play.Click += () => _p.TogglePlay();
@@ -297,6 +303,20 @@ public sealed class FloatingBar : Grid
     {
         var time = $"{Fmt.Time(_p.Position)} / {Fmt.Time(_p.Duration)}";
         if (time != _time.Text) _time.Text = time;
+        // 불러오는 중이면 재생 아이콘 대신 로딩 (0.3초 넘게 걸릴 때만 — 바로 열리는 곡은 깜빡이지 않게)
+        var busy = _p.Current != null && _p.IsBuffering;
+        if (busy != _spinning)
+        {
+            if (busy) _busySince ??= Environment.TickCount64;
+            if (!busy || Environment.TickCount64 - _busySince > 300)
+            {
+                _spinning = busy;
+                _spin.IsActive = busy;
+                Anim.Opacity(_spin, busy ? 1 : 0, Anim.Fast);
+                Anim.Opacity(_pp, busy ? 0 : 1, Anim.Fast);
+            }
+        }
+        if (!busy) _busySince = null;
         if (_p.IsPlaying != _wasPlaying && !_p.IsBuffering) OnState();
 
         // 가사 한 줄

@@ -42,6 +42,8 @@ internal static class Tween
     public static void Run(object key, int ms, Func<double, double> ease, Action<double> frame, int delayMs = 0)
     {
         Stop(key);
+        ms = Anim.D(ms);
+        if (!Anim.Enabled) delayMs = 0;
         var start = Environment.TickCount64 + delayMs;
         EventHandler<object>? h = null;
         h = (_, _) =>

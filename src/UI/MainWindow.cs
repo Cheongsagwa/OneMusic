@@ -195,6 +195,7 @@ public sealed class MainWindow : Window
         _drop.Chosen += Suggest;
         Tip.Attach(Root);
         OneMenu.Attach(Root);
+        OneDialog.Attach(Root);
 
         Content = Root;
         Root.Loaded += (_, _) =>
@@ -208,8 +209,11 @@ public sealed class MainWindow : Window
         // 단축키 — 목록 · 스크롤이 키를 먼저 써도(handled) 받도록
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
         {
-            if (e.Key != Windows.System.VirtualKey.Escape && Shortcuts.Handle(this, e)) { e.Handled = true; return; }
-            if (e.Key != Windows.System.VirtualKey.Escape || e.Handled) return;
+            if (e.Key != Windows.System.VirtualKey.Escape && !OneDialog.IsOpen && Shortcuts.Handle(this, e)) { e.Handled = true; return; }
+            if (e.Key != Windows.System.VirtualKey.Escape) return;
+            // 대화상자는 입력 칸에서 Esc 를 눌러도 닫는다
+            if (OneDialog.IsOpen) { OneDialog.Cancel(); e.Handled = true; return; }
+            if (e.Handled) return;
             if (OneMenu.IsOpen) OneMenu.CloseAll();
             else if (PlayerPage.IsOpen) ClosePlayer();
             else if (e.OriginalSource is not TextBox) Back();
