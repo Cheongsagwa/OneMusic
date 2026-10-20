@@ -46,6 +46,45 @@ public sealed class PlayerService
     /// </summary>
     public bool ShowAutoplayToggle { get; private set; }
     private int _autoVersion;
+    /// <summary>지금 목록(긴 플레이리스트)의 나머지를 이어 받는 것 — 고른 곡들 끝에 다다르기 전에 붙인다</summary>
+    private TrackPager? _pager;
+    private bool _pagerShuffle;
+
+    private void SetPager(TrackPager? pager, bool shuffle = false)
+    {
+        if (_pager != null) _pager.Loaded -= OnPagerLoaded;
+        _pager = pager?.HasMore == true ? pager : null;
+        _pagerShuffle = shuffle;
+        if (_pager != null) _pager.Loaded += OnPagerLoaded;
+    }
+
+    /// <summary>이어 받은 묶음을 고른 곡들 끝(자동재생 구간 앞)에 붙인다 (셔플이면 묶음도 섞어서)</summary>
+    private void OnPagerLoaded(List<Track> add)
+    {
+        var known = Queue.Take(AutoStart).Select(t => t.VideoId).ToHashSet();
+        var list = add.Where(t => known.Add(t.VideoId)).ToList();
+        if (_pagerShuffle) list = list.OrderBy(_ => Random.Shared.Next()).ToList();
+        if (list.Count == 0) return;
+        // 자동재생 구간에 같은 곡이 있으면 거기선 뺀다
+        var ids = list.Select(t => t.VideoId).ToHashSet();
+        for (var i = Queue.Count - 1; i >= AutoStart; i--)
+            if (ids.Contains(Queue[i].VideoId) && i != Index)
+            {
+                Queue.RemoveAt(i);
+                if (i < Index) Index--;
+            }
+        var at = Math.Min(AutoStart, Queue.Count);
+        Queue.InsertRange(at, list);
+        if (at <= Index) Index += list.Count;
+        AutoStart = at + list.Count;
+        QueueChanged?.Invoke();
+    }
+
+    /// <summary>고른 곡들 끝이 가까우면 나머지 묶음을 미리 받는다</summary>
+    private void MaybePage()
+    {
+        if (_pager is { HasMore: true } pg && Index < AutoStart && Index + 5 >= AutoStart) _ = pg.Next();
+    }
 
     /// <summary>자동재생 — 목록 끝에 다다르면 비슷한 곡을 이어서 튼다</summary>
     public bool Autoplay
@@ -180,6 +219,7 @@ public sealed class PlayerService
     /// <summary>곡 하나를 틀고, 그 곡으로 시작하는 라디오를 다음 트랙으로 채운다</summary>
     public async Task PlaySong(Track t, bool fromSearch = false)
     {
+        SetPager(null);
         ShowAutoplayToggle = fromSearch;
         Queue = new List<Track> { t };
         Index = 0;
@@ -217,9 +257,10 @@ public sealed class PlayerService
 
     /// <summary>앨범 · 플레이리스트를 튼다. automix 가 있으면 그 목록, 없으면 마지막 곡의 라디오를 자동재생 구간으로 붙인다</summary>
     public async Task PlayList(List<Track> list, int start = 0, string? title = null, string? related = null,
-        string? automixPlaylistId = null, string? automixParams = null)
+        string? automixPlaylistId = null, string? automixParams = null, TrackPager? pager = null, bool shuffled = false)
     {
         if (list.Count == 0) return;
+        SetPager(pager, shuffled);
         QueueTitle = title;
         RelatedBrowseId = related;
         Queue = new List<Track>(list);
@@ -232,7 +273,17 @@ public sealed class PlayerService
         var version = ++_autoVersion;
         QueueChanged?.Invoke();
         var load = Load();
-        if (Autoplay) _ = LoadAuto(automixPlaylistId == null ? list[^1].VideoId : null, automixPlaylistId, automixParams, version);
+        // 자동 믹스가 비면 마지막 곡의 라디오로
+        if (Autoplay)
+            _ = LoadAuto(async ct =>
+            {
+                if (automixPlaylistId != null)
+                {
+                    var mix = await InnerTube.Instance.GetQueue(null, automixPlaylistId, automixParams, ct);
+                    if (mix.Tracks.Count > 0) return mix;
+                }
+                return await InnerTube.Instance.GetQueue(list[^1].VideoId, null, null, ct);
+            }, version, false);
         await load;
     }
 
@@ -335,6 +386,7 @@ public sealed class PlayerService
     {
         var data = await InnerTube.Instance.GetQueue(videoId, playlistId, @params);
         if (data.Tracks.Count == 0) return;
+        SetPager(null);
         var start = videoId == null ? 0 : Math.Max(0, data.Tracks.FindIndex(t => t.VideoId == videoId));
         Queue = data.Tracks.ToList();
         Index = start;
@@ -353,6 +405,7 @@ public sealed class PlayerService
     /// <summary>'현재 재생목록 닫기' — 재생을 멈추고 목록을 비운다 (재생 바도 사라진다)</summary>
     public void CloseQueue()
     {
+        SetPager(null);
         _loadCts?.Cancel();
         _mp.Pause();
         _mp.Source = null;
@@ -432,6 +485,8 @@ public sealed class PlayerService
     public async Task Next()
     {
         if (Queue.Count == 0) return;
+        // 긴 목록의 끝에 다다랐으면 나머지를 받아서 이어 간다
+        if (_pager is { HasMore: true } pg && Index + 1 == AutoStart) await pg.Next();
         // 자동재생을 끄면 자동재생 구간은 건너뛴다 (목록 끝 = 사용자가 고른 곡 끝)
         var end = Autoplay || !ShowAutoplayToggle ? Queue.Count : Math.Min(AutoStart, Queue.Count);
         if (Index + 1 < end) Index++;
@@ -482,6 +537,7 @@ public sealed class PlayerService
     {
         var t = Current;
         if (t == null) return;
+        MaybePage();
         _loadCts?.Cancel();
         var cts = _loadCts = new CancellationTokenSource();
         _triedFallback = false;

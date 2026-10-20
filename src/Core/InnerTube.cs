@@ -152,7 +152,7 @@ public sealed class InnerTube
                 nav.P("browseEndpoint", "browseId").Str(), PageTypeOf(nav.P("browseEndpoint")), track)
             {
                 Menu = ParseMenu(card.P("menu", "menuRenderer")),
-                Buttons = ParseButtons(card.P("buttons")),
+                Buttons = ParseCardButtons(card.P("buttons")),
             };
             if (card.P("contents") is JsonArray cc)
                 topMore = cc.Select(x => x.P("musicResponsiveListItemRenderer")).OfType<JsonNode>().Select(ParseSearchItem).OfType<SearchItem>().ToList();
@@ -187,7 +187,7 @@ public sealed class InnerTube
     }
 
     /// <summary>카드 버튼 (buttonRenderer · toggleButtonRenderer · subscribeButtonRenderer) — 글자 · 아이콘 · 동작 그대로</summary>
-    private static List<YtMenuItem>? ParseButtons(JsonNode? buttons)
+    private static List<YtMenuItem>? ParseCardButtons(JsonNode? buttons)
     {
         if (buttons is not JsonArray arr) return null;
         var list = new List<YtMenuItem>();
@@ -538,7 +538,7 @@ public sealed class InnerTube
             var title = ms.P("title").Text();
             var (cards, tracks) = ParseItems(ms.P("contents") as JsonArray);
             // 세로 목록(기록 · 보관함 노래 · 좋아요 표시한 음악 …) — 화면에서도 세로로
-            if (tracks.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "노래", cards, tracks) { List = true });
+            if (tracks.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "노래", cards, tracks) { List = true, ListContinuation = TrackToken(ms) });
         }
         return shelves;
     }
@@ -732,6 +732,8 @@ public sealed class InnerTube
             radio = header.P("startRadioButton").FindFirst("playlistId").Str();
         }
 
+        // 100곡이 넘는 플레이리스트는 이어 받는 표가 목록 끝(또는 continuations)에 온다
+        var tracksToken = kind == PageKind.Artist ? null : TrackToken(list);
         return new PageData(kind, title,
             subtitle.Length > 0 ? subtitle : null,
             albumArtist.Length > 0 ? albumArtist : null,
@@ -751,7 +753,33 @@ public sealed class InnerTube
             Subscribed = header.FindFirst("subscribeButtonRenderer").P("subscribed")?.GetValue<bool>() == true,
             AudioPlaylistId = json.FindFirst("musicResponsiveHeaderRenderer").FindFirst("playlistId").Str()
                               ?? (browseId.StartsWith("VL") ? browseId[2..] : null),
+            TracksContinuation = tracksToken,
         };
+    }
+
+    /// <summary>곡 목록(musicPlaylistShelf · musicShelf)의 다음 묶음 표 — 예전 방식(continuations)과 새 방식(끝의 continuationItemRenderer)</summary>
+    private static string? TrackToken(JsonNode? shelf) =>
+        shelf.P("continuations", 0, "nextContinuationData", "continuation").Str()
+        ?? (shelf.P("contents") as JsonArray)?.LastOrDefault().P("continuationItemRenderer").FindFirst("continuationCommand").P("token").Str();
+
+    /// <summary>
+    /// 곡 목록 다음 묶음 (플레이리스트 100곡 너머 · 보관함 노래 …). 새 방식(본문에 continuation)으로 먼저, 비면 예전 방식(ctoken)
+    /// </summary>
+    public async Task<(List<Track> Tracks, string? Next)> MoreTracks(string token, string? thumb, CancellationToken ct = default)
+    {
+        var json = await Post("browse", new JsonObject { ["continuation"] = token }, ct);
+        var items = json.FindAll("musicResponsiveListItemRenderer").ToList();
+        if (items.Count == 0)
+        {
+            json = await Post($"browse?ctoken={Uri.EscapeDataString(token)}&continuation={Uri.EscapeDataString(token)}&type=next", new JsonObject(), ct);
+            items = json.FindAll("musicResponsiveListItemRenderer").ToList();
+        }
+        var tracks = items.Select(ParseResponsive).OfType<Track>().DistinctBy(t => t.VideoId)
+            .Select(t => t.Thumb == null && thumb != null ? t with { Thumb = thumb } : t).ToList();
+        var next = json.FindFirst("continuationItemRenderer").FindFirst("continuationCommand").P("token").Str()
+                   ?? json.FindFirst("musicPlaylistShelfContinuation").P("continuations", 0, "nextContinuationData", "continuation").Str()
+                   ?? json.FindFirst("musicShelfContinuation").P("continuations", 0, "nextContinuationData", "continuation").Str();
+        return (tracks, next != token ? next : null);
     }
 
     /// <summary>머리의 '보관함에 저장' 같은 켜고 끄는 버튼 (toggleButtonRenderer)</summary>

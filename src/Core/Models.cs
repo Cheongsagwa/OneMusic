@@ -54,6 +54,8 @@ public sealed record Card(
 
 public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks = null)
 {
+    /// <summary>세로 곡 목록(보관함 노래 · 기록)이 더 있으면 이어 받는 표</summary>
+    public string? ListContinuation { get; init; }
     /// <summary>셸프 머리 '더보기' (예: 새 앨범 및 싱글 → 전체, 아티스트 앨범 → 모두)</summary>
     public string? MoreBrowseId { get; init; }
     public string? MoreParams { get; init; }
@@ -128,6 +130,8 @@ public sealed record PageData(
     public bool Subscribed { get; init; }
     /// <summary>앨범 · 플레이리스트의 재생목록 ID (공유 · 재생목록에 저장)</summary>
     public string? AudioPlaylistId { get; init; }
+    /// <summary>곡이 100곡을 넘으면 나머지를 이어 받는 표 (스크롤 · 재생하면서 이어 받는다)</summary>
+    public string? TracksContinuation { get; init; }
 }
 
 /// <summary>검색 결과 한 줄 (노래 · 동영상 · 앨범 · 아티스트 · 플레이리스트 …)</summary>

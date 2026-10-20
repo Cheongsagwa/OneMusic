@@ -416,12 +416,32 @@ public sealed class ShelvesView : ScrollPage
             // 세로 곡 목록 (기록 · 보관함 노래): 둥근 카드 안의 줄들 (pear 14 · 48)
             if (s.Title.Length > 0) box.Children.Add(head);
             var rows = new StackPanel();
-            for (var i = 0; i < listTracks.Count; i++)
+            TrackRow? last = null;
+            var known = new HashSet<string>();
+            void AddRows(IEnumerable<Track> tracks)
             {
-                var t = listTracks[i];
-                var tr = new TrackRow(t, divider: i < listTracks.Count - 1, subtitle: t.Album != null ? $"{t.Artist} • {t.Album}" : null);
-                tr.Click += r => _ = PlayerService.Instance.PlaySong(r.Track);
-                rows.Children.Add(tr);
+                foreach (var t in tracks)
+                {
+                    if (!known.Add(t.VideoId)) continue;
+                    if (last != null) last.Divider = true;
+                    var tr = new TrackRow(t, divider: false, subtitle: t.Album != null ? $"{t.Artist} • {t.Album}" : null);
+                    tr.Click += r => _ = PlayerService.Instance.PlaySong(r.Track);
+                    rows.Children.Insert(rows.Children.Count - (rows.Children.LastOrDefault() is MoreSentinel ? 1 : 0), tr);
+                    last = tr;
+                }
+            }
+            AddRows(listTracks);
+            // 더 있으면 끝에 다다를 때 이어 받는다 (YT Music 보관함 노래 · 기록처럼 스크롤로)
+            if (s.ListContinuation != null)
+            {
+                var pager = new TrackPager(s.ListContinuation);
+                var sentinel = new MoreSentinel(pager);
+                rows.Children.Add(sentinel);
+                pager.Loaded += add =>
+                {
+                    AddRows(add);
+                    if (!pager.HasMore) rows.Children.Remove(sentinel);
+                };
             }
             box.Children.Add(new Border
             {
@@ -517,6 +537,25 @@ public sealed class ShelvesView : ScrollPage
         }
         box.Children.Add(sv);
         return box;
+    }
+
+    /// <summary>
+    /// 긴 곡 목록 끝 표시 — 화면 끝에서 900px 안으로 들어오면 다음 묶음을 받는다 (받는 동안 '더 불러오는 중…')
+    /// </summary>
+    internal sealed class MoreSentinel : Grid
+    {
+        public MoreSentinel(TrackPager pager)
+        {
+            Height = 56;
+            var t = Theme.Text("더 불러오는 중…", 14, FontWeights.SemiBold, Theme.Secondary);
+            t.HorizontalAlignment = HorizontalAlignment.Center;
+            t.VerticalAlignment = VerticalAlignment.Center;
+            Children.Add(t);
+            EffectiveViewportChanged += (_, e) =>
+            {
+                if (e.BringIntoViewDistanceY < 900 && pager.HasMore) _ = pager.Next();
+            };
+        }
     }
 
     /// <summary>셸프 머리 오른쪽 ‹ › — 테두리만 있는 36px 동그라미, 끝에 닿으면 흐려진다 (pear 셸프 버튼)</summary>

@@ -16,6 +16,11 @@ public sealed class DetailView : ScrollPage
     private readonly List<TrackRow> _rows = new();
     private readonly TextBlock _status = Theme.Text("불러오는 중…", 15, FontWeights.SemiBold, Theme.Secondary);
     private PageData? _page;
+    /// <summary>100곡 넘는 목록의 나머지 (스크롤 · 재생하면서 이어 받는다 — 재생기와 함께 쓴다)</summary>
+    private TrackPager? _pager;
+    private StackPanel? _trackList;
+    private ShelvesView.MoreSentinel? _sentinel;
+    private readonly HashSet<string> _known = new();
     public event Action? BackRequested;
 
     /// <summary>이 카드를 누르면 바로 재생하는 대신 상세 화면을 여는지</summary>
@@ -45,7 +50,11 @@ public sealed class DetailView : ScrollPage
 
         var p = PlayerService.Instance;
         Loaded += (_, _) => { p.TrackChanged += MarkCurrent; MarkCurrent(); };
-        Unloaded += (_, _) => p.TrackChanged -= MarkCurrent;
+        Unloaded += (_, _) =>
+        {
+            p.TrackChanged -= MarkCurrent;
+            if (_pager != null) _pager.Loaded -= OnMoreTracks;
+        };
     }
 
     public async void Load()
@@ -59,6 +68,12 @@ public sealed class DetailView : ScrollPage
         {
             var page = await InnerTube.Instance.BrowsePage(_browseId);
             _page = page;
+            foreach (var t in page.Tracks) _known.Add(t.VideoId);
+            if (page.TracksContinuation != null)
+            {
+                _pager = new TrackPager(page.TracksContinuation, page.Thumb);
+                _pager.Loaded += OnMoreTracks;
+            }
             Body.Children.Remove(_status);
             if (page.Title.Length == 0 && page.Tracks.Count == 0 && page.Shelves.Count == 0)
             {
@@ -319,10 +334,12 @@ public sealed class DetailView : ScrollPage
                 var r = new TrackRow(t, divider: i < page.Tracks.Count - 1,
                     subtitle: album || t.Album == null ? null : $"{t.Artist} • {t.Album}",
                     number: album ? i + 1 : null);
-                r.Click += row => _ = PlayerService.Instance.PlayList(page.Tracks, idx, page.Title);
+                r.Click += row => PlayFrom(page, page.Tracks, idx);
                 _rows.Add(r);
                 list.Children.Add(r);
             }
+            _trackList = list;
+            if (_pager is { HasMore: true } pg) list.Children.Add(_sentinel = new ShelvesView.MoreSentinel(pg));
             var card = new Border
             {
                 CornerRadius = new CornerRadius(Theme.RadiusCard),
@@ -390,6 +407,7 @@ public sealed class DetailView : ScrollPage
         var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
         pkg.SetText(url);
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+        Toast.Show("링크를 복사했어요");
     }
 
     /// <summary>구독 알약 — 구독 전엔 흰 바탕, 구독 중이면 반투명 칩 (YT Music 아티스트 머리)</summary>
@@ -472,7 +490,7 @@ public sealed class DetailView : ScrollPage
         {
             var idx = i;
             var r = new TrackRow(page.Tracks[i], divider: i < page.Tracks.Count - 1);
-            r.Click += row => _ = PlayerService.Instance.PlayList(page.Tracks, idx, page.Title);
+            r.Click += row => PlayFrom(page, page.Tracks, idx);
             _rows.Add(r);
             list.Children.Add(r);
         }
@@ -498,7 +516,40 @@ public sealed class DetailView : ScrollPage
         }
         if (page.Tracks.Count == 0) return;
         var list = shuffle ? page.Tracks.OrderBy(_ => Random.Shared.Next()).ToList() : page.Tracks;
-        _ = PlayerService.Instance.PlayList(list, 0, page.Title);
+        PlayFrom(page, list, 0, shuffle);
+    }
+
+    /// <summary>
+    /// 앨범 · 플레이리스트를 튼다 — 끝나면 YT Music 처럼 그 목록의 자동 믹스(RDAMPL + 목록 ID)가 이어진다
+    /// (아티스트 인기곡 목록은 자동 믹스 대신 마지막 곡 라디오)
+    /// </summary>
+    private void PlayFrom(PageData page, List<Track> list, int index, bool shuffled = false)
+    {
+        var automix = page.Kind != PageKind.Artist && page.AudioPlaylistId is { } pl ? "RDAMPL" + pl : null;
+        _ = PlayerService.Instance.PlayList(list, index, page.Title, null, automix, null, _pager, shuffled);
+    }
+
+    /// <summary>나머지 묶음이 오면 곡 목록 카드 끝에 줄을 붙인다 (앨범은 번호 이어서)</summary>
+    private void OnMoreTracks(List<Track> add)
+    {
+        if (_page is not { } page || _trackList == null) return;
+        var album = page.Kind == PageKind.Album;
+        foreach (var t in add)
+        {
+            if (!_known.Add(t.VideoId)) continue;
+            if (_rows.Count > 0) _rows[^1].Divider = true;
+            page.Tracks.Add(t);
+            var idx = page.Tracks.Count - 1;
+            var r = new TrackRow(t, divider: false,
+                subtitle: album || t.Album == null ? null : $"{t.Artist} • {t.Album}",
+                number: album ? idx + 1 : null);
+            r.Click += _ => PlayFrom(page, page.Tracks, idx);
+            _rows.Add(r);
+            var at = _sentinel != null && _trackList.Children.Contains(_sentinel) ? _trackList.Children.Count - 1 : _trackList.Children.Count;
+            _trackList.Children.Insert(at, r);
+        }
+        if (_pager?.HasMore != true && _sentinel != null) _trackList.Children.Remove(_sentinel);
+        MarkCurrent();
     }
 
     private static async void PlayPlaylist(string playlistId, string title)
