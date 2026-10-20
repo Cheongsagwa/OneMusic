@@ -49,10 +49,18 @@ public sealed class DetailView : ScrollPage
         Body.Children.Add(_status);
 
         var p = PlayerService.Instance;
-        Loaded += (_, _) => { p.TrackChanged += MarkCurrent; MarkCurrent(); };
+        Loaded += (_, _) =>
+        {
+            p.TrackChanged += MarkCurrent;
+            TrackMenu.PlaylistEdited += OnPlaylistEdited;
+            TrackMenu.PlaylistDeleted += OnPlaylistDeleted;
+            MarkCurrent();
+        };
         Unloaded += (_, _) =>
         {
             p.TrackChanged -= MarkCurrent;
+            TrackMenu.PlaylistEdited -= OnPlaylistEdited;
+            TrackMenu.PlaylistDeleted -= OnPlaylistDeleted;
             if (_pager != null) _pager.Loaded -= OnMoreTracks;
         };
     }
@@ -334,7 +342,7 @@ public sealed class DetailView : ScrollPage
                 var r = new TrackRow(t, divider: i < page.Tracks.Count - 1,
                     subtitle: album || t.Album == null ? null : $"{t.Artist} • {t.Album}",
                     number: album ? i + 1 : null);
-                r.Click += row => PlayFrom(page, page.Tracks, idx);
+                r.Click += row => PlayFrom(page, page.Tracks, IndexOf(page, row.Track, idx));
                 _rows.Add(r);
                 list.Children.Add(r);
             }
@@ -490,7 +498,7 @@ public sealed class DetailView : ScrollPage
         {
             var idx = i;
             var r = new TrackRow(page.Tracks[i], divider: i < page.Tracks.Count - 1);
-            r.Click += row => PlayFrom(page, page.Tracks, idx);
+            r.Click += row => PlayFrom(page, page.Tracks, IndexOf(page, row.Track, idx));
             _rows.Add(r);
             list.Children.Add(r);
         }
@@ -529,6 +537,33 @@ public sealed class DetailView : ScrollPage
         _ = PlayerService.Instance.PlayList(list, index, page.Title, null, automix, null, _pager, shuffled);
     }
 
+    /// <summary>곡의 지금 자리 (곡을 빼서 자리가 밀렸을 수 있어서 처음 자리 대신 찾는다)</summary>
+    private static int IndexOf(PageData page, Track t, int hint) =>
+        hint < page.Tracks.Count && page.Tracks[hint].VideoId == t.VideoId ? hint : Math.Max(0, page.Tracks.FindIndex(x => x.VideoId == t.VideoId));
+
+    private bool Shows(string playlistId) =>
+        _page?.AudioPlaylistId == playlistId || _browseId == "VL" + playlistId;
+
+    /// <summary>이 재생목록에서 곡을 뺐으면 그 줄을 접으며 지운다</summary>
+    private async void OnPlaylistEdited(string playlistId, string? removedVideoId)
+    {
+        if (removedVideoId == null || !Shows(playlistId) || _page is not { } page) return;
+        var row = _rows.FirstOrDefault(r => r.Track.VideoId == removedVideoId);
+        if (row == null) return;
+        _rows.Remove(row);
+        page.Tracks.RemoveAll(t => t.VideoId == removedVideoId);
+        _known.Remove(removedVideoId);
+        Anim.Opacity(row, 0, Anim.Fast);
+        await Task.Delay(Anim.Fast);
+        (row.Parent as Panel)?.Children.Remove(row);
+        if (_rows.Count > 0) _rows[^1].Divider = false;
+    }
+
+    private void OnPlaylistDeleted(string playlistId)
+    {
+        if (Shows(playlistId)) BackRequested?.Invoke();
+    }
+
     /// <summary>나머지 묶음이 오면 곡 목록 카드 끝에 줄을 붙인다 (앨범은 번호 이어서)</summary>
     private void OnMoreTracks(List<Track> add)
     {
@@ -543,7 +578,7 @@ public sealed class DetailView : ScrollPage
             var r = new TrackRow(t, divider: false,
                 subtitle: album || t.Album == null ? null : $"{t.Artist} • {t.Album}",
                 number: album ? idx + 1 : null);
-            r.Click += _ => PlayFrom(page, page.Tracks, idx);
+            r.Click += row => PlayFrom(page, page.Tracks, IndexOf(page, row.Track, idx));
             _rows.Add(r);
             var at = _sentinel != null && _trackList.Children.Contains(_sentinel) ? _trackList.Children.Count - 1 : _trackList.Children.Count;
             _trackList.Children.Insert(at, r);

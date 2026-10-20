@@ -182,6 +182,15 @@ public static class TrackMenu
             if (endpoint == null) { Toast.Show("이 항목은 지원하지 않아요"); return; }
             var ep = JsonNode.Parse(endpoint);
             if (await RunNode(ep, text, ctx)) return;
+            // '재생목록 수정' — 이름 바꾸기 (YT 웹의 수정 대화상자 대신)
+            if (text.Contains("수정") && PlaylistIdOf(ctx) is { } pl)
+            {
+                var name = await Prompt.Ask(ctx.At.XamlRoot, "재생목록 이름 바꾸기", ctx.Card?.Title ?? "새 이름", "바꾸기", ctx.Card?.Title);
+                if (string.IsNullOrWhiteSpace(name)) return;
+                var ok = await InnerTube.Instance.RenamePlaylist(pl, name.Trim());
+                Toast.Show(ok ? $"'{name.Trim()}'(으)로 바꿨어요" : "하지 못했어요");
+                return;
+            }
             Log.Warn($"메뉴 동작 모름: {text} {endpoint[..Math.Min(200, endpoint.Length)]}");
             Toast.Show($"'{text}'은(는) 아직 지원하지 않아요");
         }
@@ -197,8 +206,39 @@ public static class TrackMenu
         "watchEndpoint", "watchPlaylistEndpoint", "queueAddEndpoint", "browseEndpoint", "shareEntityEndpoint",
         "addToPlaylistEndpoint", "feedbackEndpoint", "likeEndpoint", "playlistEditEndpoint", "removeFromQueueEndpoint",
         "dismissQueueCommand", "offlineVideoEndpoint", "getReportFormEndpoint", "flagEndpoint", "urlEndpoint",
-        "subscribeEndpoint", "unsubscribeEndpoint",
+        "subscribeEndpoint", "unsubscribeEndpoint", "deletePlaylistEndpoint",
     ];
+
+    /// <summary>내 재생목록이 바뀌었을 때 (재생목록 ID, 뺀 곡 ID) — 상세 화면이 그 줄을 지운다</summary>
+    public static event Action<string, string?>? PlaylistEdited;
+    /// <summary>재생목록을 지웠을 때 — 그 화면이 열려 있으면 닫는다</summary>
+    public static event Action<string>? PlaylistDeleted;
+
+    /// <summary>
+    /// YT 확인 대화상자(confirmDialogRenderer) — '재생목록을 삭제할까요?' 처럼 되돌릴 수 없는 동작은 먼저 묻는다.
+    /// 확인을 누르면 true
+    /// </summary>
+    private static async Task<bool> Confirm(JsonNode dialog, FrameworkElement at)
+    {
+        if (at.XamlRoot == null) return false;
+        var title = dialog.P("title").Text();
+        var message = dialog.P("dialogMessages") is JsonArray msgs ? string.Join("\n", msgs.Select(m => m.Text()).Where(x => x.Length > 0)) : "";
+        var ok = dialog.P("confirmButton").FindFirst("text").Text();
+        var cancel = dialog.P("cancelButton").FindFirst("text").Text();
+        var dlg = new ContentDialog
+        {
+            XamlRoot = at.XamlRoot,
+            Title = title.Length > 0 ? title : "계속할까요?",
+            Content = message.Length > 0 ? Theme.Text(message, 15, FontWeights.Normal, Theme.Secondary, 6) : null,
+            PrimaryButtonText = ok.Length > 0 ? ok : "확인",
+            CloseButtonText = cancel.Length > 0 ? cancel : "취소",
+            DefaultButton = ContentDialogButton.Close,
+            CornerRadius = new CornerRadius(28),
+            Background = Theme.Glass(0.78, Color.FromArgb(255, 46, 46, 48), blur: 40),
+            RequestedTheme = ElementTheme.Dark,
+        };
+        return await dlg.ShowAsync() == ContentDialogResult.Primary;
+    }
 
     /// <summary>
     /// 끝이 있는 목록(앨범 · 플레이리스트, 셔플 포함)은 YT Music 처럼 그 목록 + 자동재생 토글,
@@ -227,8 +267,12 @@ public static class TrackMenu
         var key = Known.FirstOrDefault(o.ContainsKey);
         JsonNode? node = key != null ? o[key] : null;
         if (key == null)
+        {
+            // 확인 대화상자가 감싸고 있으면 먼저 묻는다 (취소하면 아무것도 안 함)
+            if (o.FindFirst("confirmDialogRenderer") is { } dialog && !await Confirm(dialog, ctx.At)) return true;
             foreach (var k in Known)
                 if (o.FindFirst(k) is { } inner) { key = k; node = inner; break; }
+        }
         if (key == null || node == null) return false;
 
         switch (key)
@@ -294,6 +338,16 @@ public static class TrackMenu
             {
                 var ok = await api.EditPlaylist(node);
                 Toast.Show(ok ? Done(text) : "하지 못했어요");
+                if (ok && node.P("playlistId").Str() is { } epl)
+                    PlaylistEdited?.Invoke(epl, node.P("actions", 0, "removedVideoId").Str());
+                return true;
+            }
+            case "deletePlaylistEndpoint":
+            {
+                if (node.P("playlistId").Str() is not { } dpl) return false;
+                var ok = await api.DeletePlaylist(dpl);
+                Toast.Show(ok ? "재생목록을 삭제했어요" : "하지 못했어요");
+                if (ok) PlaylistDeleted?.Invoke(dpl);
                 return true;
             }
             case "removeFromQueueEndpoint":
@@ -332,6 +386,9 @@ public static class TrackMenu
             if (text.EndsWith(verb)) return text + "했어요";
         return "완료했어요";
     }
+
+    private static string? PlaylistIdOf(Ctx ctx) =>
+        ctx.Card?.PlaylistId ?? (ctx.Card?.BrowseId?.StartsWith("VL") == true ? ctx.Card.BrowseId[2..] : null);
 
     private static string? LinkOf(Ctx ctx)
     {
@@ -467,16 +524,16 @@ public static class TrackMenu
 /// <summary>한 줄 입력 대화상자 (새 재생목록 이름 등) — One UI 유리 대화상자</summary>
 public static class Prompt
 {
-    public static async Task<string?> Ask(XamlRoot? root, string title, string placeholder)
+    public static async Task<string?> Ask(XamlRoot? root, string title, string placeholder, string primary = "만들기", string? initial = null)
     {
         if (root == null) return null;
-        var box = new TextBox { PlaceholderText = placeholder, FontFamily = Theme.Font, FontSize = 15, MinWidth = 320 };
+        var box = new TextBox { PlaceholderText = placeholder, FontFamily = Theme.Font, FontSize = 15, MinWidth = 320, Text = initial ?? "" };
         var dlg = new ContentDialog
         {
             XamlRoot = root,
             Title = title,
             Content = box,
-            PrimaryButtonText = "만들기",
+            PrimaryButtonText = primary,
             CloseButtonText = "취소",
             DefaultButton = ContentDialogButton.Primary,
             CornerRadius = new CornerRadius(28),

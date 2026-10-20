@@ -898,6 +898,21 @@ public sealed class InnerTube
         return json != null;
     }
 
+    /// <summary>내 재생목록 삭제</summary>
+    public async Task<bool> DeletePlaylist(string playlistId, CancellationToken ct = default)
+    {
+        var json = await Post("playlist/delete", new JsonObject { ["playlistId"] = playlistId }, ct);
+        return json != null;
+    }
+
+    /// <summary>내 재생목록 이름 바꾸기</summary>
+    public async Task<bool> RenamePlaylist(string playlistId, string name, CancellationToken ct = default) =>
+        await EditPlaylist(new JsonObject
+        {
+            ["playlistId"] = playlistId,
+            ["actions"] = new JsonArray(new JsonObject { ["action"] = "ACTION_SET_PLAYLIST_NAME", ["playlistName"] = name }),
+        }, ct);
+
     public async Task<bool> EditPlaylist(JsonNode endpoint, CancellationToken ct = default)
     {
         var body = (endpoint.DeepClone() as JsonObject) ?? new JsonObject();
