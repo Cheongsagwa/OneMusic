@@ -252,9 +252,8 @@ public sealed class InnerTube
     /// 곡 댓글 — YouTube(WEB) next 에서 댓글 칸의 이어 받기 토큰을 얻고, 그 토큰으로 댓글을 받는다.
     /// token 을 주면 그 다음 묶음 (인기순 → 끝까지 내리면 이어서)
     /// </summary>
-    public async Task<CommentPage> Comments(string videoId, string? token = null, CancellationToken ct = default)
+    public async Task<CommentPage> Comments(string videoId, string? token = null, CancellationToken ct = default, bool replies = false)
     {
-        string? count = null;
         if (token == null)
         {
             var watch = await Post("next", new JsonObject { ["videoId"] = videoId }, ct, web: true);
@@ -265,20 +264,39 @@ public sealed class InnerTube
             if (token == null) return new CommentPage(new(), null, null);
         }
         var json = await Post("next", new JsonObject { ["continuation"] = token }, ct, web: true);
-        count = json.FindFirst("commentsHeaderRenderer").P("countText").Text();
-        // 새 형식: 내용은 frameworkUpdates 의 commentEntityPayload 에
+        var header = json.FindFirst("commentsHeaderRenderer");
+        var count = header.P("countText").Text();
+
+        // 새 형식: 내용은 frameworkUpdates 의 commentEntityPayload (entityKey = commentViewModel.commentKey)
+        var map = new Dictionary<string, JsonNode>();
+        foreach (var arr in json.FindAll("mutations").OfType<JsonArray>())
+            foreach (var m in arr)
+                if (m.P("payload", "commentEntityPayload") is { } pl && m.P("entityKey").Str() is { } key)
+                    map[key] = pl;
+        Comment? FromPayload(JsonNode p, string? repliesToken) => new(
+            p.P("author", "displayName").Str() ?? "",
+            p.P("author", "avatarThumbnailUrl").Str(),
+            p.P("properties", "content", "content").Str() ?? "",
+            p.P("properties", "publishedTime").Str() ?? "",
+            p.P("toolbar", "likeCountNotliked").Str() ?? "",
+            p.P("toolbar", "replyCount").Str() ?? "") { RepliesToken = repliesToken };
+
         var list = new List<Comment>();
-        foreach (var p in json.FindAll("commentEntityPayload"))
+        if (!replies)
         {
-            var props = p.P("properties");
-            if (props.P("replyLevel")?.GetValue<int>() is > 0) continue;
-            list.Add(new Comment(
-                p.P("author", "displayName").Str() ?? "",
-                p.P("author", "avatarThumbnailUrl").Str(),
-                props.P("content", "content").Str() ?? "",
-                props.P("publishedTime").Str() ?? "",
-                p.P("toolbar", "likeCountNotliked").Str() ?? "",
-                p.P("toolbar", "replyCount").Str() ?? ""));
+            foreach (var t in json.FindAll("commentThreadRenderer"))
+            {
+                var key = t.FindFirst("commentKey").Str();
+                var rt = t.P("replies").FindFirst("continuationCommand").P("token").Str();
+                if (key != null && map.TryGetValue(key, out var p) && FromPayload(p, rt) is { } c) list.Add(c);
+            }
+        }
+        else
+        {
+            // 답글: 묶음 없이 commentViewModel 이 차례로 온다
+            foreach (var vm in json.FindAll("commentViewModel"))
+                if (vm.P("commentKey").Str() is { } key && map.TryGetValue(key, out var p) && FromPayload(p, null) is { } c && list.All(x => x.Text != c.Text || x.Author != c.Author))
+                    list.Add(c);
         }
         // 옛 형식
         if (list.Count == 0)
@@ -287,7 +305,26 @@ public sealed class InnerTube
                     c.P("publishedTimeText").Text(), c.P("voteCount").Text(), c.P("replyCount").Str() ?? ""));
         var next = json.FindAll("continuationItemRenderer")
             .Select(c => c.FindFirst("continuationCommand").P("token").Str()).LastOrDefault(t => t != null);
-        return new CommentPage(list, count is { Length: > 0 } ? count : null, list.Count > 0 ? next : null);
+        // 정렬 (인기 댓글 · 최신순) · 댓글 쓰기 칸
+        var sorts = header.FindFirst("sortFilterSubMenuRenderer").P("subMenuItems") is JsonArray items
+            ? items.Select(x => (x.P("title").Str() ?? x.P("title").Text(), x.FindFirst("continuationCommand").P("token").Str() ?? "", x.P("selected")?.GetValue<bool>() == true))
+                .Where(x => x.Item2.Length > 0).ToList()
+            : new List<(string, string, bool)>();
+        var box = json.FindFirst("commentSimpleboxRenderer");
+        return new CommentPage(list, count is { Length: > 0 } ? count : null, list.Count > 0 ? next : null)
+        {
+            Sorts = sorts,
+            CreateParams = box.FindFirst("createCommentParams").Str(),
+            MyAvatar = box.P("authorThumbnail").BestThumb(),
+            Placeholder = box.P("placeholderText").Text() is { Length: > 0 } ph ? ph : null,
+        };
+    }
+
+    /// <summary>댓글 쓰기 (YouTube 계정으로) — 성공하면 true</summary>
+    public async Task<bool> PostComment(string text, string createParams, CancellationToken ct = default)
+    {
+        var json = await Post("comment/create_comment", new JsonObject { ["commentText"] = text, ["createCommentParams"] = createParams }, ct, web: true);
+        return json != null && (json.P("actionResult", "status").Str() is null or "STATUS_SUCCEEDED");
     }
 
     // ───────────────────────── 좋아요 · 재생목록에 저장 ─────────────────────────

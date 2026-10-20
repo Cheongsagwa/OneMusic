@@ -638,9 +638,30 @@ public sealed class SearchView : ScrollPage
             {
                 if (sec.Title.Length > 0 && (_filter == null || data.Sections.Count > 1))
                 {
-                    var h = Theme.Text(sec.Title, 22, FontWeights.ExtraBold, Theme.OnSurface);
-                    h.Margin = new Thickness(8, 32, 0, 12);
-                    Add(h);
+                    var head = new Grid { Margin = new Thickness(8, 32, 0, 12) };
+                    head.Children.Add(Theme.Text(sec.Title, 22, FontWeights.ExtraBold, Theme.OnSurface));
+                    // 갈래마다 '모두 보기' — 그 갈래의 필터 칩을 고른 것과 같다 (YT Music 검색)
+                    if (_filter == null && data.Chips.FirstOrDefault(c => c.Text == sec.Title && c.Params != null) is { } chip)
+                    {
+                        var all = new Border
+                        {
+                            Height = 32,
+                            CornerRadius = new CornerRadius(16),
+                            Padding = new Thickness(14, 0, 14, 0),
+                            BorderBrush = Theme.B(Color.FromArgb(70, 255, 255, 255)),
+                            BorderThickness = new Thickness(1),
+                            Background = new SolidColorBrush(Colors.Transparent),
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Child = Theme.Text("모두 보기", 13, FontWeights.SemiBold, Theme.OnSurface),
+                        };
+                        ((TextBlock)all.Child).VerticalAlignment = VerticalAlignment.Center;
+                        all.PointerEntered += (_, _) => all.Background = Theme.B(Theme.ChipHover);
+                        all.PointerExited += (_, _) => all.Background = new SolidColorBrush(Colors.Transparent);
+                        Anim.Pressable(all);
+                        all.Tapped += (_, _) => { _filter = chip.Params; Run(); };
+                        head.Children.Add(all);
+                    }
+                    Add(head);
                 }
                 foreach (var it in sec.Items) Add(Row(it, sec.Items));
             }

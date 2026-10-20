@@ -180,10 +180,21 @@ public static class Fmt
     }
 }
 
-public sealed record Comment(string Author, string? Avatar, string Text, string Time, string Likes, string Replies);
+public sealed record Comment(string Author, string? Avatar, string Text, string Time, string Likes, string Replies)
+{
+    /// <summary>답글 묶음을 받아 올 토큰</summary>
+    public string? RepliesToken { get; init; }
+}
 
 /// <summary>댓글 한 묶음 + '댓글 810개' + 다음 묶음 토큰</summary>
-public sealed record CommentPage(List<Comment> Items, string? Count, string? Next);
+public sealed record CommentPage(List<Comment> Items, string? Count, string? Next)
+{
+    /// <summary>정렬 (인기 댓글 · 최신순) — 제목 · 토큰 · 지금 고른 것</summary>
+    public List<(string Title, string Token, bool Selected)> Sorts { get; init; } = new();
+    public string? CreateParams { get; init; }
+    public string? MyAvatar { get; init; }
+    public string? Placeholder { get; init; }
+}
 
 /// <summary>이어 듣기 — 닫을 때의 재생 목록 상태 (%LocalAppData%\OneMusic\session.json)</summary>
 public sealed class SessionState
