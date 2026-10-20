@@ -137,7 +137,10 @@ public sealed class LyricsService
             // LRCLib 은 자기 DB 에 없으면 바깥에서 찾다가 503 을 주기도 한다 → 그냥 다음 방법으로
             if (!res.IsSuccessStatusCode) continue;
             var json = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
-            var lrc = Parse(json.P("syncedLyrics").Str());
+            var synced = json.P("syncedLyrics").Str();
+            // 원어가 아닌 것(한국 곡인데 로마자 · 영어 번역)은 버리고 검색으로
+            if (!ScriptMatches(t, synced)) { Log.Info($"LRCLib 결과가 원어가 아님 → 건너뜀: {t.Title}"); continue; }
+            var lrc = Parse(synced);
             if (lrc != null) return lrc;
         }
         // 2) 검색해서 길이가 가장 비슷한 것
@@ -149,7 +152,7 @@ public sealed class LyricsService
             var arr = JsonNode.Parse(await sres.Content.ReadAsStringAsync(ct)) as JsonArray;
             if (arr == null) continue;
             var best = arr
-                .Where(x => x.P("syncedLyrics").Str() != null)
+                .Where(x => x.P("syncedLyrics").Str() != null && ScriptMatches(t, x.P("syncedLyrics").Str()))
                 .Where(x => t.DurationSec <= 0 || Math.Abs((x?["duration"]?.GetValue<double>() ?? 0) - t.DurationSec) < 8)
                 .OrderBy(x => Math.Abs((x?["duration"]?.GetValue<double>() ?? 0) - t.DurationSec))
                 .FirstOrDefault();
@@ -157,6 +160,35 @@ public sealed class LyricsService
             if (lrc != null) return lrc;
         }
         return null;
+    }
+
+    private static bool HasHangul(string s) => s.Any(c => c is >= '\uAC00' and <= '\uD7A3' or >= '\u1100' and <= '\u11FF' or >= '\u3130' and <= '\u318F');
+    private static bool HasKana(string s) => s.Any(c => c is >= '\u3040' and <= '\u30FF');
+
+    /// <summary>
+    /// 가사가 곡의 원어인지 — 제목 · 가수 이름에 한글이 있으면 가사에도 한글이 꽤 있어야 하고(일본어 가나도 같게).
+    /// LRCLib 에는 한국 곡의 로마자 · 영어 번역 가사가 원본처럼 올라와 있는 경우가 많다
+    /// </summary>
+    private static bool ScriptMatches(Track t, string? lyrics)
+    {
+        if (string.IsNullOrWhiteSpace(lyrics)) return false;
+        var meta = $"{t.Title} {t.Artist} {t.Album}";
+        // [mm:ss.xx] 시간 표시를 뺀 글자 중 비율
+        var text = Regex.Replace(lyrics, @"\[\d+:\d+(?:\.\d+)?\]", "");
+        var letters = text.Where(char.IsLetter).ToList();
+        if (letters.Count == 0) return true;
+        if (HasHangul(meta))
+        {
+            var ko = letters.Count(c => c is >= '\uAC00' and <= '\uD7A3');
+            // 로마자 · 번역본은 한글이 0 이다. 영어가 많은 K-pop 도 살리려고 기준은 낮게
+            return ko >= Math.Max(5, letters.Count * 0.03);
+        }
+        if (HasKana(meta))
+        {
+            var ja = letters.Count(c => c is >= '\u3040' and <= '\u30FF' or >= '\u4E00' and <= '\u9FFF');
+            return ja >= Math.Max(5, letters.Count * 0.03);
+        }
+        return true;
     }
 
     /// <summary>제목의 (feat. …), [MV] 같은 꼬리를 떼서 검색이 잘 되게</summary>
