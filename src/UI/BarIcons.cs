@@ -62,7 +62,7 @@ internal static class Tween
 }
 
 /// <summary>24×24 캔버스를 size 크기로 보여 주는 아이콘 바탕</summary>
-public abstract class BarIcon : Viewbox
+public abstract class BarIcon : Grid
 {
     protected readonly Canvas C = new() { Width = 24, Height = 24 };
     protected SolidColorBrush Brush;
@@ -71,7 +71,7 @@ public abstract class BarIcon : Viewbox
     {
         Width = Height = size;
         Brush = Theme.B(color);
-        Child = C;
+        Children.Add(new Viewbox { Child = C });
         IsHitTestVisible = false;
     }
 
@@ -221,12 +221,12 @@ public sealed class SkipIcon : BarIcon
 }
 
 /// <summary>선 위의 점 · 방향을 길이로 찾기 위해 미리 잘게 나눠 둔 경로</summary>
-internal sealed class Track
+internal sealed class IconTrack
 {
     private readonly List<(double X, double Y, double L)> _pts = new();
     public double Length => _pts[^1].L;
 
-    public Track(params Func<double, Point>[] parts)
+    public IconTrack(params Func<double, Point>[] parts)
     {
         foreach (var f in parts)
             for (var i = 0; i <= 60; i++)
@@ -285,8 +285,8 @@ internal sealed class Track
 /// <summary>셔플 — 선은 그대로, 누르면 화살표 머리가 선의 시작에서 피어나 끝까지 달려간다</summary>
 public sealed class ShuffleIcon : BarIcon
 {
-    private readonly Track _ta = new(Track.L(3.6, 18.6, 6.4, 18.6), Track.C(6.4, 18.6, 11.2, 18.6, 12.8, 5.4, 17.6, 5.4), Track.L(17.6, 5.4, 20.4, 5.4));
-    private readonly Track _tb = new(Track.L(3.6, 5.4, 6.4, 5.4), Track.C(6.4, 5.4, 11.2, 5.4, 12.8, 18.6, 17.6, 18.6), Track.L(17.6, 18.6, 20.4, 18.6));
+    private readonly IconTrack _ta = new(IconTrack.L(3.6, 18.6, 6.4, 18.6), IconTrack.C(6.4, 18.6, 11.2, 18.6, 12.8, 5.4, 17.6, 5.4), IconTrack.L(17.6, 5.4, 20.4, 5.4));
+    private readonly IconTrack _tb = new(IconTrack.L(3.6, 5.4, 6.4, 5.4), IconTrack.C(6.4, 5.4, 11.2, 5.4, 12.8, 18.6, 17.6, 18.6), IconTrack.L(17.6, 18.6, 20.4, 18.6));
     private readonly Path _ha, _hb, _ha0, _hb0;
     private double _ka = 1, _kb = 1;
     public event Action<bool>? ActiveChanged;
@@ -333,11 +333,11 @@ public sealed class RepeatIcon : BarIcon
 {
     private const double Gap = 3.6, Home = 8.4, Th = 1.7;
     // 둥근 사각형 (7.4,5.2) 에서 오른쪽으로 출발해 시계 방향 한 바퀴 (pear .loop 와 같은 경로)
-    private readonly Track _loop = new(
-        Track.L(7.4, 5.2, 16.6, 5.2), Track.A(16.6, 9, 3.8, -90, 0),
-        Track.L(20.4, 9, 20.4, 15), Track.A(16.6, 15, 3.8, 0, 90),
-        Track.L(16.6, 18.8, 7.4, 18.8), Track.A(7.4, 15, 3.8, 90, 180),
-        Track.L(3.6, 15, 3.6, 9), Track.A(7.4, 9, 3.8, 180, 270));
+    private readonly IconTrack _loop = new(
+        IconTrack.L(7.4, 5.2, 16.6, 5.2), IconTrack.A(16.6, 9, 3.8, -90, 0),
+        IconTrack.L(20.4, 9, 20.4, 15), IconTrack.A(16.6, 15, 3.8, 0, 90),
+        IconTrack.L(16.6, 18.8, 7.4, 18.8), IconTrack.A(7.4, 15, 3.8, 90, 180),
+        IconTrack.L(3.6, 15, 3.6, 9), IconTrack.A(7.4, 9, 3.8, 180, 270));
     private readonly Path _path, _head, _one;
     private readonly CompositeTransform _oneT = new() { CenterX = 11.6, CenterY = 12, ScaleX = 0.4, ScaleY = 0.4 };
     private bool _isOne;
