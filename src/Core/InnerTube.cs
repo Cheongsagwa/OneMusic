@@ -178,6 +178,22 @@ public sealed class InnerTube
         return new SearchItem(title, sub, item.P("thumbnail").BestThumb(), be.P("browseId").Str(), PageTypeOf(be), track);
     }
 
+    // ───────────────────────── 가사 (YT Music) ─────────────────────────
+
+    /// <summary>YT Music 자체 가사 — next 의 '가사' 탭 browseId 로 browse. 시간 정보 없는 글자만 온다</summary>
+    public async Task<string?> YtLyrics(string videoId, CancellationToken ct = default)
+    {
+        var next = await Post("next", new JsonObject { ["videoId"] = videoId, ["isAudioOnly"] = true }, ct);
+        string? id = null;
+        foreach (var tab in next.FindAll("tabRenderer"))
+            if (tab.P("endpoint", "browseEndpoint", "browseEndpointContextSupportedConfigs", "browseEndpointContextMusicConfig", "pageType").Str() == "MUSIC_PAGE_TYPE_TRACK_LYRICS")
+                id = tab.P("endpoint", "browseEndpoint", "browseId").Str();
+        if (id == null) return null;
+        var json = await Post("browse", new JsonObject { ["browseId"] = id }, ct);
+        var text = json.FindFirst("musicDescriptionShelfRenderer").P("description").Text();
+        return text.Length > 0 ? text : null;
+    }
+
     // ───────────────────────── 댓글 ─────────────────────────
 
     /// <summary>

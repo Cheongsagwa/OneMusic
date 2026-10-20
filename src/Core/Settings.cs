@@ -9,6 +9,8 @@ public sealed class Settings
     public bool Muted { get; set; }
     public RepeatMode Repeat { get; set; } = RepeatMode.Off;
     public bool Autoplay { get; set; } = true;
+    /// <summary>가사를 먼저 찾을 곳 (☆ 로 바꾼다)</summary>
+    public LyricsSource LyricsSource { get; set; } = LyricsSource.LRCLib;
     public int WindowWidth { get; set; } = 1440;
     public int WindowHeight { get; set; } = 920;
 

@@ -2,13 +2,90 @@ using System.Text.RegularExpressions;
 
 namespace OneMusic.Core;
 
-/// <summary>LRCLib(무료 공개 가사 DB)에서 시간 정보가 있는 가사를 가져온다</summary>
+/// <summary>
+/// 가사 — LRCLib(시간 있는 공개 DB) · YT Music(글자만) · Musixmatch(시간 있음, 데스크톱 앱 토큰).
+/// 출처마다 따로 찾고 곡 · 출처별로 기억해 둔다
+/// </summary>
 public sealed class LyricsService
 {
     public static LyricsService Instance { get; } = new();
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly Dictionary<string, List<LyricLine>?> _cache = new();
+    private readonly Dictionary<(string, LyricsSource), LyricsResult?> _bySource = new();
+    private string? _mxmToken;
+
+    /// <summary>찾는 순서: 고른 출처 → LRCLib → YT Music → Musixmatch</summary>
+    public static IEnumerable<LyricsSource> Order(LyricsSource preferred) =>
+        new[] { preferred, LyricsSource.LRCLib, LyricsSource.YTMusic, LyricsSource.Musixmatch }.Distinct();
+
+    public async Task<LyricsResult?> Get(Track t, LyricsSource source, CancellationToken ct)
+    {
+        lock (_bySource) if (_bySource.TryGetValue((t.VideoId, source), out var c)) return c;
+        LyricsResult? r = null;
+        try
+        {
+            r = source switch
+            {
+                LyricsSource.LRCLib => await Get(t, ct) is { } l ? new LyricsResult(l, true) : null,
+                LyricsSource.YTMusic => Plain(await InnerTube.Instance.YtLyrics(t.VideoId, ct)),
+                _ => await Musixmatch(t, ct),
+            };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception e) { Log.Warn($"가사({source}) 실패: {e.Message}"); }
+        lock (_bySource) _bySource[(t.VideoId, source)] = r;
+        return r;
+    }
+
+    private static LyricsResult? Plain(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var lines = text.Replace("\r", "").Split('\n').Select(x => new LyricLine(-1, x.Trim())).ToList();
+        return new LyricsResult(lines, false);
+    }
+
+    private const string MxmBase = "https://apic-desktop.musixmatch.com/ws/1.1/";
+
+    /// <summary>Musixmatch 데스크톱 앱과 같은 방식 — 토큰을 받고 macro.subtitles.get 으로 시간 있는 가사, 없으면 글자 가사</summary>
+    private async Task<LyricsResult?> Musixmatch(Track t, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            _mxmToken ??= await MxmToken(ct);
+            if (_mxmToken == null) return null;
+            var url = $"{MxmBase}macro.subtitles.get?format=json&namespace=lyrics_richsynched&subtitle_format=mxm&app_id=web-desktop-app-v1.0" +
+                      $"&q_track={Uri.EscapeDataString(Clean(t.Title))}&q_artist={Uri.EscapeDataString(t.Artist)}" +
+                      (t.DurationSec > 0 ? $"&q_duration={t.DurationSec}" : "") + $"&usertoken={Uri.EscapeDataString(_mxmToken)}";
+            var json = await MxmGet(url, ct);
+            var status = json.P("message", "header", "status_code")?.GetValue<int>();
+            if (status == 401) { _mxmToken = null; continue; }
+            var calls = json.P("message", "body", "macro_calls");
+            var body = calls.P("track.subtitles.get", "message", "body", "subtitle_list", 0, "subtitle", "subtitle_body").Str();
+            if (body != null && JsonNode.Parse(body) is JsonArray arr && arr.Count > 0)
+                return new LyricsResult(arr.Select(x => new LyricLine(
+                    (int)((x.P("time", "total")?.GetValue<double>() ?? 0) * 1000), x.P("text").Str() ?? "")).ToList(), true);
+            var plain = calls.P("track.lyrics.get", "message", "body", "lyrics", "lyrics_body").Str();
+            // 무료 응답 끝의 '******* This Lyrics is NOT for Commercial use' 같은 줄은 뺀다
+            if (plain != null) plain = string.Join('\n', plain.Split('\n').TakeWhile(l => !l.StartsWith("*******")));
+            return Plain(plain);
+        }
+        return null;
+    }
+
+    private async Task<string?> MxmToken(CancellationToken ct)
+    {
+        var json = await MxmGet($"{MxmBase}token.get?app_id=web-desktop-app-v1.0", ct);
+        return json.P("message", "body", "user_token").Str() is { Length: > 0 } tok && !tok.StartsWith("UpgradeOnly") ? tok : null;
+    }
+
+    private async Task<JsonNode?> MxmGet(string url, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("Cookie", "AWSELBCORS=0; AWSELB=0");
+        using var res = await _http.SendAsync(req, ct);
+        return JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+    }
     private static readonly Regex LineRx = new(@"^\[(\d+):(\d+(?:\.\d+)?)\](.*)$", RegexOptions.Compiled);
 
     public LyricsService()

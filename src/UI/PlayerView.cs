@@ -84,6 +84,7 @@ public sealed class PlayerView : Grid
     private readonly OneToggle _autoplay;
     private Grid _autoRow = null!;
     private readonly LyricsView _lyrics = new();
+    private readonly Grid _lyricsTab = new();
     private readonly CommentsView _comments = new();
     private readonly ScrollViewer _related = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
     private readonly StackPanel _relatedList = new() { Spacing = 8 };
@@ -173,7 +174,13 @@ public sealed class PlayerView : Grid
         _queueTab.Children.Add(_queueScroll);
         content.Children.Add(_queueTab);
 
-        content.Children.Add(_lyrics);
+        // 가사 탭: 출처 고르기 카드 + 가사
+        _lyricsTab.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _lyricsTab.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _lyricsTab.Children.Add(new LyricsSourceBar());
+        Grid.SetRow(_lyrics, 1);
+        _lyricsTab.Children.Add(_lyrics);
+        content.Children.Add(_lyricsTab);
         content.Children.Add(_comments);
         _related.Content = _relatedList;
         content.Children.Add(_related);
@@ -194,7 +201,7 @@ public sealed class PlayerView : Grid
 
     private void ShowTab(int i)
     {
-        var views = new FrameworkElement[] { _queueTab, _lyrics, _comments, _related };
+        var views = new FrameworkElement[] { _queueTab, _lyricsTab, _comments, _related };
         for (var k = 0; k < views.Length; k++) views[k].Visibility = k == i ? Visibility.Visible : Visibility.Collapsed;
         _lyrics.Active = i == 1 && IsOpen;
         Anim.Appear(views[i], 0, 10);
