@@ -60,6 +60,39 @@ public sealed class PlayerService
     }
     public bool Loading { get; private set; }
 
+    /// <summary>재생기 (재생 화면이 동영상을 그릴 때 MediaPlayerElement 에 붙인다)</summary>
+    public MediaPlayer Media => _mp;
+
+    /// <summary>노래 / 동영상 전환 — 동영상이면 뮤직비디오(짝 ID)를 화면과 함께 튼다</summary>
+    public bool VideoMode { get; private set; }
+    /// <summary>지금 실제로 영상을 틀고 있는지 (동영상 모드여도 짝이 없는 곡은 노래로)</summary>
+    public bool PlayingVideo { get; private set; }
+    public event Action? VideoChanged;
+    private double _resumeAt;
+
+    /// <summary>이 곡의 영상 ID — 뮤직비디오 · 일반 동영상이면 자기 자신, 음원이면 짝(뮤직비디오)</summary>
+    public static string? VideoIdFor(Track? t) =>
+        t == null ? null : t.VideoType is "MUSIC_VIDEO_TYPE_OMV" or "MUSIC_VIDEO_TYPE_UGC" ? t.VideoId : t.CounterpartId;
+
+    public bool CanVideo => VideoIdFor(Current) != null;
+
+    /// <summary>노래 ↔ 동영상 — 같은 자리에서 이어서 튼다 (YT Music 처럼)</summary>
+    public async void SetVideoMode(bool on)
+    {
+        if (on == VideoMode) return;
+        VideoMode = on;
+        VideoChanged?.Invoke();
+        if (Current is not { } t) return;
+        var wanted = on ? VideoIdFor(t) != null : PlayingVideo;
+        if (!wanted) return;
+        _resumeAt = Position;
+        _loadCts?.Cancel();
+        var cts = _loadCts = new CancellationTokenSource();
+        Loading = true;
+        StateChanged?.Invoke();
+        await Open(t, false, cts.Token);
+    }
+
     public event Action? TrackChanged;
     public event Action? StateChanged;
     public event Action? QueueChanged;
@@ -79,6 +112,12 @@ public sealed class PlayerService
         {
             _openedAt = DateTime.UtcNow;
             Loading = false;
+            // 노래 ↔ 동영상 전환이면 듣던 자리에서 이어서
+            if (_resumeAt > 1)
+            {
+                _mp.PlaybackSession.Position = TimeSpan.FromSeconds(_resumeAt);
+                _resumeAt = 0;
+            }
             StateChanged?.Invoke();
         });
 
@@ -440,13 +479,30 @@ public sealed class PlayerService
     {
         try
         {
-            var bytes = await StreamResolver.Instance.Audio(t.VideoId, fallback, ct);
-            if (ct.IsCancellationRequested) return;
-            var ras = new InMemoryRandomAccessStream();
-            await ras.WriteAsync(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
-            ras.Seek(0);
-            if (ct.IsCancellationRequested) return;
-            var item = new MediaPlaybackItem(MediaSource.CreateFromStream(ras, "audio/mp4"));
+            MediaPlaybackItem item;
+            var vid = VideoMode && !fallback ? VideoIdFor(t) : null;
+            if (vid != null)
+            {
+                // 뮤직비디오: 주소를 바로 흘려 받는다
+                var url = await StreamResolver.Instance.VideoUrl(vid, ct);
+                if (ct.IsCancellationRequested) return;
+                item = new MediaPlaybackItem(MediaSource.CreateFromUri(new Uri(url)));
+            }
+            else
+            {
+                var bytes = await StreamResolver.Instance.Audio(t.VideoId, fallback, ct);
+                if (ct.IsCancellationRequested) return;
+                var ras = new InMemoryRandomAccessStream();
+                await ras.WriteAsync(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
+                ras.Seek(0);
+                if (ct.IsCancellationRequested) return;
+                item = new MediaPlaybackItem(MediaSource.CreateFromStream(ras, "audio/mp4"));
+            }
+            if (PlayingVideo != (vid != null))
+            {
+                PlayingVideo = vid != null;
+                VideoChanged?.Invoke();
+            }
             var props = item.GetDisplayProperties();
             props.Type = MediaPlaybackType.Music;
             props.MusicProperties.Title = t.Title;

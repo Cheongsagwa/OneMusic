@@ -74,6 +74,7 @@ public sealed class PlayerView : Grid
     private readonly PlayerService _p = PlayerService.Instance;
     private readonly Border _art = new() { CornerRadius = new CornerRadius(Theme.RadiusCard) };
     private readonly ArtView _artView = new((float)Theme.RadiusCard, 670);
+    private readonly MediaPlayerElement _videoView = new() { AreTransportControlsEnabled = false, Stretch = Stretch.Uniform, Background = Theme.B(Colors.Black) };
     private readonly Grid _artBox = new() { Width = 670, Height = 648 };
     private readonly PillTabs _tabs = new("다음 트랙", "가사", "댓글", "관련 항목");
     private readonly StackPanel _queue = new();
@@ -108,7 +109,14 @@ public sealed class PlayerView : Grid
         left.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var av = new AvToggle { Margin = new Thickness(0, 0, 0, 24) };
         left.Children.Add(av);
-        _art.Child = _artView;
+        // 뮤직비디오는 아트 자리에서 화면으로 (재생기 하나를 그대로 붙인다)
+        var artStack = new Grid();
+        artStack.Children.Add(_artView);
+        _videoView.SetMediaPlayer(_p.Media);
+        _videoView.Visibility = Visibility.Collapsed;
+        artStack.Children.Add(_videoView);
+        _art.Child = artStack;
+        _p.VideoChanged += OnVideo;
         _artBox.Children.Add(_art);
         var artHolder = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, VerticalAlignment = VerticalAlignment.Center, Child = _artBox };
         _art.Shadow = new ThemeShadow();
@@ -239,12 +247,22 @@ public sealed class PlayerView : Grid
         if (!IsOpen) Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>노래 ↔ 동영상: 영상이면 16:9 화면, 노래면 아트</summary>
+    private void OnVideo()
+    {
+        var video = _p.PlayingVideo;
+        _videoView.Visibility = video ? Visibility.Visible : Visibility.Collapsed;
+        if (video) Anim.Appear(_videoView, 0, 0);
+        var wide = video || _p.Current?.Thumb?.Contains("ytimg.com") == true;
+        _artBox.Height = wide ? 377 : 648;
+    }
+
     private void OnTrack()
     {
         var t = _p.Current;
         // 뮤직비디오(동영상 썸네일)는 16:9, 노래는 정사각형에 가깝게 (pear 와 같은 670×648)
         // 뮤직비디오 · 동영상(16:9 썸네일)은 자르지 않고 16:9 그대로 (pear 와 같게), 노래는 670×648. 둘 다 세로 가운데
-        var wide = t?.Thumb?.Contains("ytimg.com") == true;
+        var wide = _p.PlayingVideo || t?.Thumb?.Contains("ytimg.com") == true;
         _artBox.Height = wide ? 377 : 648;
         _artView.Show(t?.Thumb);
         for (var i = 0; i < _rows.Count; i++) _rows[i].SetCurrent(i == _p.Index);

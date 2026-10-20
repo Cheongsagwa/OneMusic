@@ -32,9 +32,18 @@ public sealed class OneToggle : Grid
     }
 }
 
-/// <summary>노래 / 동영상 전환 알약 (헤드폰 · 영상 아이콘) — 지금은 노래만 (동영상 재생은 아직)</summary>
+/// <summary>
+/// 노래 / 동영상 전환 알약 (pear 29 · 59 · 88) — 높이 44 칩 트랙 안에 56×36 버튼 둘(헤드폰 · 영상, 아이콘 20).
+/// 고른 쪽은 진한 알약(흰 18%)이 미끄러져 오고 아이콘이 흰색, 아닌 쪽은 회색.
+/// 뮤직비디오가 없는 곡은 YT 처럼 전환을 막고 흐리게(0.4)
+/// </summary>
 public sealed class AvToggle : Grid
 {
+    private readonly Border _pill = new() { Width = 56, Height = 36, CornerRadius = new CornerRadius(18), Background = Theme.B(Color.FromArgb(46, 255, 255, 255)), HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Grid _song = new() { Width = 56, Height = 36, Background = new SolidColorBrush(Colors.Transparent) };
+    private readonly Grid _video = new() { Width = 56, Height = 36, Background = new SolidColorBrush(Colors.Transparent) };
+    private readonly Core.PlayerService _p = Core.PlayerService.Instance;
+
     public AvToggle()
     {
         Height = 44;
@@ -42,13 +51,37 @@ public sealed class AvToggle : Grid
         CornerRadius = new CornerRadius(22);
         Background = Theme.B(Theme.Chip);
         HorizontalAlignment = HorizontalAlignment.Center;
+        _pill.Shadow = new ThemeShadow();
+        _pill.Translation = new Vector3(0, 0, 8);
+        Children.Add(_pill);
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        var song = new Border { Width = 56, Height = 36, CornerRadius = new CornerRadius(18), Background = Theme.B(Theme.Selected), Child = Theme.Icon(20, Colors.White, Icons.Headphones) };
-        var video = new Border { Width = 56, Height = 36, CornerRadius = new CornerRadius(18), Child = Theme.Icon(20, Theme.Secondary, Icons.Video), Opacity = 0.5 };
-        Tip.Set(video, "동영상 재생은 준비 중이에요");
-        row.Children.Add(song);
-        row.Children.Add(video);
+        row.Children.Add(_song);
+        row.Children.Add(_video);
         Children.Add(row);
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
+        Tip.Set(_song, "노래");
+        Tip.Set(_video, "동영상");
+        _song.Tapped += (_, _) => _p.SetVideoMode(false);
+        _video.Tapped += (_, _) => _p.SetVideoMode(true);
+        Anim.Pressable(_song);
+        Anim.Pressable(_video);
+        _p.VideoChanged += Update;
+        _p.TrackChanged += Update;
+        Update();
+    }
+
+    private void Update()
+    {
+        var video = _p.VideoMode;
+        _song.Children.Clear();
+        _video.Children.Clear();
+        _song.Children.Add(Theme.Icon(20, video ? Theme.Secondary : Colors.White, Icons.Headphones));
+        _video.Children.Add(Theme.Icon(20, video ? Colors.White : Theme.Secondary, Icons.Video));
+        Anim.Translate(_pill, new Vector3(video ? 58 : 0, 0, 0));
+        // 뮤직비디오가 없으면 전환을 막고 흐리게
+        var enabled = _p.CanVideo || video;
+        Opacity = enabled ? 1 : 0.4;
+        IsHitTestVisible = enabled;
     }
 }
 

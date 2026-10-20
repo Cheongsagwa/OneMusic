@@ -162,11 +162,25 @@ public sealed class StreamResolver
         lock (_cache) _cache[id] = (url, DateTime.UtcNow);
     }
 
-    private async Task<string> ViaYtDlp(string videoId, CancellationToken ct)
+    /// <summary>
+    /// 뮤직비디오 재생용 — 소리와 화면이 한 파일에 든 mp4 (18 = 360p 는 늘 있다, 더 좋은 것이 있으면 그것).
+    /// Windows 재생기가 주소를 바로 열어 흘려 받는다 (영상은 커서 통째로 받지 않는다)
+    /// </summary>
+    public async Task<string> VideoUrl(string videoId, CancellationToken ct)
+    {
+        var key = "v:" + videoId;
+        lock (_cache)
+            if (_cache.TryGetValue(key, out var c) && DateTime.UtcNow - c.At < TimeSpan.FromHours(1)) return c.Url;
+        var url = await ViaYtDlp(videoId, ct, "best[ext=mp4][vcodec!=none][acodec!=none][height<=1080]/18/best");
+        Remember(key, url);
+        return url;
+    }
+
+    private async Task<string> ViaYtDlp(string videoId, CancellationToken ct, string format = "bestaudio[ext=m4a]/bestaudio")
     {
         await EnsureYtDlp(ct);
         var psi = new ProcessStartInfo(YtDlpPath,
-            $"-f \"bestaudio[ext=m4a]/bestaudio\" -g --no-warnings --no-playlist \"https://www.youtube.com/watch?v={videoId}\"")
+            $"-f \"{format}\" -g --no-warnings --no-playlist \"https://www.youtube.com/watch?v={videoId}\"")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
