@@ -130,6 +130,8 @@ public static class Icons
     public const string RepeatOne = "M10.9 10.4l1.4-1v5.2";
     public const string Shuffle = "M3.6 18.6H6.4c4.8 0 6.4-13.2 11.2-13.2h2.8 M3.6 5.4H6.4c4.8 0 6.4 13.2 11.2 13.2h2.8 M17.8 2.8l2.6 2.6-2.6 2.6 M17.8 16l2.6 2.6-2.6 2.6";
     public const string ChevronDown = "M6 9.4 12 15.4l6-6";
+    public const string ChevronLeft = "M14.6 6 8.6 12l6 6";
+    public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";
     public const string ChevronUp = "M6 14.6 12 8.6l6 6";
     public const string Search = "M10.8 4.2a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2z M15.6 15.6 20 20";
     public const string Home = "M4.5 10.2 12 4.2l7.5 6v8.4c0 .7-.5 1.2-1.2 1.2H14v-5.4h-4v5.4H5.7c-.7 0-1.2-.5-1.2-1.2z";

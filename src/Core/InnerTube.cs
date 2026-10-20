@@ -144,7 +144,7 @@ public sealed class InnerTube
         return ParseShelves(json);
     }
 
-    private static List<Shelf> ParseShelves(JsonNode? json)
+    private static List<Shelf> ParseShelves(JsonNode? json, bool lists = true)
     {
         var shelves = new List<Shelf>();
         foreach (var shelf in json.FindAll("musicCarouselShelfRenderer"))
@@ -160,6 +160,7 @@ public sealed class InnerTube
                     Avatar = header.P("thumbnail").BestThumb(),
                 });
         }
+        if (!lists) return shelves;
         // 보관함처럼 격자로 오는 화면
         foreach (var grid in json.FindAll("gridRenderer"))
         {
@@ -254,7 +255,83 @@ public sealed class InnerTube
         return list;
     }
 
+    /// <summary>앨범 · 플레이리스트 · 아티스트 상세 화면 (머리 + 곡 목록 + 아래 셸프들)</summary>
+    public async Task<PageData> BrowsePage(string browseId, CancellationToken ct = default)
+    {
+        var json = await Post("browse", new JsonObject { ["browseId"] = browseId }, ct);
+        var artistHeader = json.FindFirst("musicImmersiveHeaderRenderer") ?? json.FindFirst("musicVisualHeaderRenderer");
+        var header = artistHeader ?? json.FindFirst("musicResponsiveHeaderRenderer") ?? json.FindFirst("musicDetailHeaderRenderer");
+        var kind = artistHeader != null || browseId.StartsWith("UC") ? PageKind.Artist
+            : browseId.StartsWith("MPRE") ? PageKind.Album : PageKind.Playlist;
+
+        var title = header.P("title").Text();
+        var subtitle = header.P("subtitle").Text();
+        var strap = header.P("straplineTextOne");
+        var desc = header.P("description", "musicDescriptionShelfRenderer", "description").Text();
+        if (desc.Length == 0) desc = header.P("description").Text();
+        var second = header.P("secondSubtitle").Text();
+        if (kind == PageKind.Artist)
+        {
+            // 아티스트: 부제목 자리에 구독자 · 월간 청취자 수
+            var subs = header.FindFirst("subscriberCountText").Text();
+            var monthly = header.P("monthlyListenerCount").Text();
+            subtitle = string.Join(" • ", new[] { subs.Length > 0 ? $"구독자 {subs}" : "", monthly }.Where(x => x.Length > 0));
+        }
+        var thumb = header.P("thumbnail").BestThumb() ?? header.P("foregroundThumbnail").BestThumb();
+
+        // 곡 목록: 앨범 · 아티스트는 musicShelfRenderer, 플레이리스트는 musicPlaylistShelfRenderer
+        var list = json.FindFirst("musicPlaylistShelfRenderer") ?? json.FindFirst("musicShelfRenderer");
+        var tracks = (list.P("contents") as JsonArray ?? new JsonArray()).Select(i => i.P("musicResponsiveListItemRenderer"))
+            .OfType<JsonNode>().Select(ParseResponsive).OfType<Track>().DistinctBy(t => t.VideoId).ToList();
+        var albumArtist = strap.Text();
+        var albumArtistId = ArtistOf(strap);
+        if (kind == PageKind.Album)
+            // 앨범 수록곡 줄에는 썸네일 · 가수(한 사람 앨범일 때) · 앨범 이름이 비어 있다
+            tracks = tracks.Select(t => t with
+            {
+                Thumb = t.Thumb ?? thumb,
+                Artist = t.Artist.Length > 0 ? t.Artist : albumArtist,
+                ArtistId = t.ArtistId ?? albumArtistId,
+                Album = t.Album ?? title,
+                AlbumId = t.AlbumId ?? browseId,
+            }).ToList();
+        else if (thumb != null)
+            tracks = tracks.Select(t => t.Thumb == null ? t with { Thumb = thumb } : t).ToList();
+        var tracksTitle = list.P("title").Text();
+        var more = list.P("bottomEndpoint", "browseEndpoint", "browseId").Str()
+                   ?? list.P("title", "runs", 0, "navigationEndpoint", "browseEndpoint", "browseId").Str();
+
+        string? play = null, radio = null;
+        if (kind == PageKind.Artist)
+        {
+            play = header.P("playButton").FindFirst("playlistId").Str();
+            radio = header.P("startRadioButton").FindFirst("playlistId").Str();
+        }
+
+        return new PageData(kind, title,
+            subtitle.Length > 0 ? subtitle : null,
+            albumArtist.Length > 0 ? albumArtist : null,
+            albumArtistId,
+            second.Length > 0 ? second : null,
+            desc.Length > 0 ? desc : null,
+            thumb, tracks,
+            tracksTitle.Length > 0 ? tracksTitle : null,
+            more,
+            ParseShelves(json, lists: false),
+            play, radio);
+    }
+
     // ───────────────────────── 파싱 ─────────────────────────
+
+    private static string? PageTypeOf(JsonNode? browseEndpoint) =>
+        browseEndpoint.P("browseEndpointContextSupportedConfigs", "browseEndpointContextMusicConfig", "pageType").Str();
+
+    /// <summary>글자 조각들(runs) 중 아티스트 · 앨범 페이지로 가는 링크의 browseId</summary>
+    private static string? LinkOf(JsonNode? node, string pageType) =>
+        node.FindAll("browseEndpoint").FirstOrDefault(b => PageTypeOf(b) == pageType).P("browseId").Str();
+
+    private static string? ArtistOf(JsonNode? node) => LinkOf(node, "MUSIC_PAGE_TYPE_ARTIST");
+    private static string? AlbumOf(JsonNode? node) => LinkOf(node, "MUSIC_PAGE_TYPE_ALBUM");
 
     private static readonly Regex TimeRx = new(@"^\d{1,2}(:\d{2}){1,2}$", RegexOptions.Compiled);
     private static readonly string[] TypeLabels = ["노래", "동영상", "Song", "Video", "에피소드", "Episode"];
@@ -291,7 +368,9 @@ public sealed class InnerTube
         var artist = segs.Count > 0 ? segs[0] : "";
         var album = segs.Count > 1 ? segs[1] : null;
         var thumb = item.P("thumbnail").BestThumb();
-        return new Track(videoId, title, artist, album, thumb, duration);
+        var rest = cols?.Skip(1).ToList() ?? new List<JsonNode?>();
+        return new Track(videoId, title, artist, album, thumb, duration,
+            rest.Select(ArtistOf).FirstOrDefault(x => x != null), rest.Select(AlbumOf).FirstOrDefault(x => x != null));
     }
 
     private static string? VideoType(JsonNode? r) =>
@@ -302,12 +381,13 @@ public sealed class InnerTube
         var videoId = r.P("videoId").Str();
         if (videoId == null) return null;
         var title = r.P("title").Text();
-        var byline = (r.P("longBylineText") ?? r.P("shortBylineText")).Text();
+        var bylineNode = r.P("longBylineText") ?? r.P("shortBylineText");
+        var byline = bylineNode.Text();
         var segs = byline.Split(" • ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var artist = segs.Length > 0 ? segs[0] : "";
         var album = segs.Length > 1 && !Regex.IsMatch(segs[1], @"^\d{4}$") ? segs[1] : null;
         var duration = Fmt.ParseTime(r.P("lengthText").Text());
-        return new Track(videoId, title, artist, album, r.P("thumbnail").BestThumb(), duration);
+        return new Track(videoId, title, artist, album, r.P("thumbnail").BestThumb(), duration, ArtistOf(bylineNode), AlbumOf(bylineNode));
     }
 
     private static Card? ParseTwoRow(JsonNode two)
@@ -325,6 +405,7 @@ public sealed class InnerTube
         var videoId = nav.P("watchEndpoint", "videoId").Str();
         var playlistId = nav.P("watchEndpoint", "playlistId").Str() ?? nav.P("watchPlaylistEndpoint", "playlistId").Str();
         var browseId = nav.P("browseEndpoint", "browseId").Str();
-        return new Card(title, subtitle, best.P("url").Str(), w > h * 1.2, videoId, playlistId, browseId);
+        return new Card(title, subtitle, best.P("url").Str(), w > h * 1.2, videoId, playlistId, browseId,
+            PageTypeOf(nav.P("browseEndpoint")));
     }
 }

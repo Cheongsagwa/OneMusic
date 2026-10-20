@@ -18,6 +18,9 @@ public sealed class MainWindow : Window
     public SearchView Search { get; private set; } = null!;
     public PlayerView PlayerPage { get; private set; } = null!;
     public FloatingBar Bar { get; private set; } = null!;
+    /// <summary>열어 둔 상세 화면들 (맨 뒤가 지금 화면) + 그 밑에 깔린 탭 · 검색 화면</summary>
+    private readonly List<DetailView> _details = new();
+    private FrameworkElement? _underDetails;
     private readonly Grid _wash = new() { IsHitTestVisible = false };
     private readonly Grid _content = new();
     private Grid _nav = null!;
@@ -132,7 +135,16 @@ public sealed class MainWindow : Window
         Root.KeyDown += (_, e) =>
         {
             if (e.Key == Windows.System.VirtualKey.Escape && PlayerPage.IsOpen) ClosePlayer();
+            else if (e.Key == Windows.System.VirtualKey.Escape && e.OriginalSource is not TextBox) Back();
         };
+        // 마우스 뒤로 버튼
+        Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, e) =>
+        {
+            if (!e.GetCurrentPoint(Root).Properties.IsXButton1Pressed) return;
+            if (PlayerPage.IsOpen) ClosePlayer();
+            else Back();
+            e.Handled = true;
+        }), true);
     }
 
     /// <summary>검색 알약 — 480×40, 반투명 흰 배경, 왼쪽 돋보기 (pear 테마와 같은 위치 x=172)</summary>
@@ -187,6 +199,7 @@ public sealed class MainWindow : Window
     private void ShowTab(int i)
     {
         ClosePlayer();
+        ClearDetails();
         var views = new ShelvesView[] { Home, Explore, Library };
         Search.Visibility = Visibility.Collapsed;
         for (var k = 0; k < views.Length; k++)
@@ -210,11 +223,51 @@ public sealed class MainWindow : Window
     public void ShowSearch(string q)
     {
         ClosePlayer();
+        ClearDetails();
         _search.Text = q;
         foreach (var v in new FrameworkElement[] { Home, Explore, Library }) v.Visibility = Visibility.Collapsed;
         Search.Visibility = Visibility.Visible;
         Anim.Appear(Search, 0, 12);
         Search.Search(q);
+    }
+
+    /// <summary>앨범 · 플레이리스트 · 아티스트 상세 화면을 지금 화면 위에 연다 (뒤로 가면 원래 화면 · 스크롤 위치 그대로)</summary>
+    public void OpenBrowse(string browseId)
+    {
+        ClosePlayer();
+        var current = _content.Children.OfType<FrameworkElement>().LastOrDefault(v => v.Visibility == Visibility.Visible);
+        if (_details.Count == 0) _underDetails = current;
+        if (current != null) current.Visibility = Visibility.Collapsed;
+        // 너무 깊어지면 가장 오래된 상세 화면부터 버린다 (메모리)
+        if (_details.Count >= 8)
+        {
+            _content.Children.Remove(_details[0]);
+            _details.RemoveAt(0);
+        }
+        var d = new DetailView(browseId);
+        d.BackRequested += Back;
+        _details.Add(d);
+        _content.Children.Add(d);
+        Anim.Appear(d, 0, 12);
+        d.Load();
+    }
+
+    public void Back()
+    {
+        if (_details.Count == 0) return;
+        _content.Children.Remove(_details[^1]);
+        _details.RemoveAt(_details.Count - 1);
+        FrameworkElement? prev = _details.Count > 0 ? _details[^1] : _underDetails;
+        if (prev == null) return;
+        prev.Visibility = Visibility.Visible;
+        Anim.Appear(prev, 0, 12);
+    }
+
+    private void ClearDetails()
+    {
+        foreach (var d in _details) _content.Children.Remove(d);
+        _details.Clear();
+        _underDetails = null;
     }
 
     public void TogglePlayer()

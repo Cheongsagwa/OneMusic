@@ -22,12 +22,15 @@ YouTube Music 네이티브 윈도우 클라이언트. 원래 쓰던 Electron 앱
 - `src/Core/LyricsService.cs` — LRCLib (`get-cached` → `search`). 요청 제한에 걸린 적이 있어 재시도는 1번만
 - `src/UI/MainWindow.cs` — pear 와 같은 배치: 32px 창 끌기 / 90px 상단 바(≡ · 로고 · 검색 480×40 at x=172) / 72px 레일 / 화면 / 떠 있는 재생 바. 앨범 색 번짐 배경
 - `src/UI/Views.cs` — 셸프 화면(홈 · 둘러보기 · 보관함), 검색 결과
+- `src/UI/DetailView.cs` — 앨범 · 플레이리스트 · 아티스트 상세 화면 (`InnerTube.BrowsePage`). 앨범/아티스트/플레이리스트 카드를 누르면 바로 재생 대신 이 화면이 열린다
+  - `MainWindow.OpenBrowse(browseId)` 로 지금 화면 위에 쌓이고 `Back()`(← 버튼 · Esc · 마우스 뒤로 버튼)으로 돌아간다. 탭 · 검색으로 가면 쌓인 것 전부 닫힘, 최대 8장
+  - 곡(`Track`)에 `ArtistId` · `AlbumId` 를 같이 파싱한다 → 재생 바의 가수 이름을 누르면 아티스트 화면
 - `src/UI/PlayerView.cs` — 재생 화면: 노래/동영상 전환 + 앨범아트(670×648) / 450px 유리 패널 [다음 트랙 | 가사 | 댓글 | 관련 항목]
 - `src/UI/FloatingBar.cs` · `WaveSeekBar.cs` · `Marquee.cs` · `LyricsView.cs` · `Rows.cs` · `Controls.cs` · `Anim.cs`
 
 ## 개발용 통로 (PC 에서 작업할 때만, Debug 빌드에서만 켜짐)
 - `dev-watch.bat` 을 켜 두면 `.dev\cmd.txt` 에 `build` / `run` / `stop` / `mem` / `publish` 를 적을 때 실행하고 `.dev\out.txt` 에 결과를 남긴다
-- 앱(Debug)은 `.dev\app-cmd.txt` 의 명령을 받는다: `shot`(화면 → `.dev\shot.png`) · `state` · `mem` · `nav:home|player|lyrics|close` · `search:검색어` · `play:first|곡ID` · `next` · `toggle` · `seek:초` · `login` · `auth` · `ytdlp:곡ID|클라이언트` · `dump:곡ID`
+- 앱(Debug)은 `.dev\app-cmd.txt` 의 명령을 받는다: `shot`(화면 → `.dev\shot.png`) · `state` · `mem` · `nav:home|player|lyrics|close` · `search:검색어` · `open:browseId` · `back` · `play:first|곡ID` · `next` · `toggle` · `seek:초` · `login` · `auth` · `ytdlp:곡ID|클라이언트` · `dump:곡ID`
 - 앱 로그: `.dev\app.log` (배포판은 `%LocalAppData%\OneMusic\log.txt`)
 
 ## 사용자 취향 (중요)
@@ -42,4 +45,6 @@ YouTube Music 네이티브 윈도우 클라이언트. 원래 쓰던 Electron 앱
 - 동영상 재생(노래/동영상 전환), 재생목록 저장, 댓글 탭은 아직 껍데기
 - 아이콘 모양이 이어지듯 변하는 애니메이션(pear 의 재생↔일시정지 막대 합쳐짐 등)은 지금은 돌며 바뀌기 · 튕기기 정도로 단순화
 - 흘리는 글자(Marquee) 양 끝 흐림 마스크 없음
-- 앨범 · 아티스트 상세 화면 없음 (지금은 카드 누르면 바로 재생)
+- 상세 화면: 긴 플레이리스트 이어 받기(continuation) 없음 — 첫 100곡 정도만. 아티스트 셸프의 '모두 보기'(params 필요)도 아직
+- 둘러보기의 분위기 · 장르 카드는 params 를 안 넘겨서 아직 제대로 안 열림
+- 상세 화면은 실제 응답으로 확인 못 함 (클라우드 세션에서 작성) → PC 에서 `open:MPREb_…` / `open:UC…` 로 확인 필요

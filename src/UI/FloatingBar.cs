@@ -100,6 +100,13 @@ public sealed class FloatingBar : Grid
         info.Children.Add(_title);
         info.Children.Add(_artist);
         info.Tapped += (_, _) => OpenPlayer?.Invoke();
+        // 가수 이름을 누르면 아티스트 화면
+        _artist.Tapped += (_, e) =>
+        {
+            if (_p.Current?.ArtistId is not { } id) return;
+            e.Handled = true;
+            App.MainWin?.OpenBrowse(id);
+        };
         info.Background = new SolidColorBrush(Colors.Transparent);
         _lyricText.Margin = new Thickness(16, 0, 16, 0);
         _lyricText.VerticalAlignment = VerticalAlignment.Center;

@@ -11,6 +11,11 @@ public static class Play
         try
         {
             var p = PlayerService.Instance;
+            if (DetailView.Opens(c))
+            {
+                App.MainWin?.OpenBrowse(c.BrowseId!);
+                return;
+            }
             if (c.VideoId != null && c.PlaylistId == null)
             {
                 var t = shelf?.Tracks?.FirstOrDefault(x => x.VideoId == c.VideoId)
@@ -237,7 +242,7 @@ public sealed class ShelvesView : ScrollPage
         return sv;
     }
 
-    private static FrameworkElement BuildShelf(Shelf s)
+    internal static FrameworkElement BuildShelf(Shelf s)
     {
         var box = new StackPanel { Padding = new Thickness(0, 32, 0, 0) };
         // 머리: (프로필 사진) + 작은 글씨 + 제목 22px ExtraBold

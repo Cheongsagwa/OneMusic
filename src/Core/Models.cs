@@ -6,7 +6,9 @@ public sealed record Track(
     string Artist,
     string? Album,
     string? Thumb,
-    int DurationSec)
+    int DurationSec,
+    string? ArtistId = null,
+    string? AlbumId = null)
 {
     public string DurationText => DurationSec > 0 ? Fmt.Time(DurationSec) : "";
 }
@@ -19,7 +21,8 @@ public sealed record Card(
     bool Wide,
     string? VideoId,
     string? PlaylistId,
-    string? BrowseId);
+    string? BrowseId,
+    string? PageType = null);
 
 public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks = null)
 {
@@ -36,6 +39,25 @@ public sealed record HomeData(List<Chip> Chips, List<Shelf> Shelves);
 
 /// <summary>다음 트랙 목록 + 출처 이름(예: 'NEW YORK 믹스') + 관련 항목 페이지</summary>
 public sealed record QueueData(List<Track> Tracks, string? Title, string? RelatedBrowseId);
+
+public enum PageKind { Album, Playlist, Artist }
+
+/// <summary>앨범 · 플레이리스트 · 아티스트 상세 화면 한 장</summary>
+public sealed record PageData(
+    PageKind Kind,
+    string Title,
+    string? Subtitle,
+    string? Strapline,
+    string? StraplineId,
+    string? SecondSubtitle,
+    string? Description,
+    string? Thumb,
+    List<Track> Tracks,
+    string? TracksTitle,
+    string? TracksMoreId,
+    List<Shelf> Shelves,
+    string? PlayPlaylistId,
+    string? RadioPlaylistId);
 
 public sealed record LyricLine(int TimeMs, string Text);
 

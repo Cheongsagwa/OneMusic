@@ -57,7 +57,7 @@ public sealed class DevBridge
         if (cmd == "state")
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"track: {p.Current?.Artist} - {p.Current?.Title} ({p.Current?.VideoId})");
+            sb.AppendLine($"track: {p.Current?.Artist} - {p.Current?.Title} ({p.Current?.VideoId}) artist {p.Current?.ArtistId} album {p.Current?.AlbumId}");
             sb.AppendLine($"playing: {p.IsPlaying} buffering: {p.IsBuffering} pos: {p.Position:0.0}/{p.Duration:0.0}");
             sb.AppendLine($"queue: {p.Queue.Count} index: {p.Index} repeat: {p.Repeat} volume: {p.Volume:0.00} muted: {p.Muted}");
             sb.AppendLine($"lyrics: {LyricsState.Instance.Lines?.Count.ToString() ?? "none"} loading: {LyricsState.Instance.Loading}");
@@ -118,6 +118,8 @@ public sealed class DevBridge
         if (cmd == "nav:lyrics") { _w.OpenPlayer(); _w.PlayerPage.ShowLyricsTab(); return "ok"; }
         if (cmd == "toggle") { p.TogglePlay(); return "ok"; }
         if (cmd == "next") { await p.Next(); return "ok"; }
+        if (cmd.StartsWith("open:")) { _w.OpenBrowse(cmd[5..]); return "ok"; }
+        if (cmd == "back") { _w.Back(); return "ok"; }
         if (cmd.StartsWith("search:")) { _w.ShowSearch(cmd[7..]); return "ok"; }
         if (cmd.StartsWith("seek:")) { p.Seek(double.Parse(cmd[5..])); return "ok"; }
         if (cmd == "play:first")
