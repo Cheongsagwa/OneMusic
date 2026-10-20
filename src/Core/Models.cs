@@ -14,6 +14,9 @@ public sealed record Track(
     /// <summary>YT Music 이 이 곡에 주는 ⋮ 메뉴 (항목 이름 · 순서 · 동작 그대로)</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public List<YtMenuItem>? Menu { get; init; }
+    /// <summary>차트 순위 · 오르내림 (ARROW_DROP_UP · ARROW_DROP_DOWN · ARROW_CHART_NEUTRAL)</summary>
+    public string? Rank { get; init; }
+    public string? Trend { get; init; }
     /// <summary>뮤직비디오 ↔ 음원 짝 (노래/동영상 전환)</summary>
     public string? CounterpartId { get; init; }
     /// <summary>이 곡이 음원(ATV)인지 뮤직비디오(OMV) · 일반 동영상인지 (MUSIC_VIDEO_TYPE_…)</summary>
@@ -172,3 +175,37 @@ public sealed record Comment(string Author, string? Avatar, string Text, string 
 
 /// <summary>댓글 한 묶음 + '댓글 810개' + 다음 묶음 토큰</summary>
 public sealed record CommentPage(List<Comment> Items, string? Count, string? Next);
+
+/// <summary>이어 듣기 — 닫을 때의 재생 목록 상태 (%LocalAppData%\OneMusic\session.json)</summary>
+public sealed class SessionState
+{
+    public List<Track> Queue { get; set; } = new();
+    public int Index { get; set; } = -1;
+    public double Position { get; set; }
+    public int AutoStart { get; set; }
+    public bool Radio { get; set; }
+    public bool ShowAutoplayToggle { get; set; }
+    public string? QueueTitle { get; set; }
+    public string? RelatedBrowseId { get; set; }
+
+    private static readonly string FilePath = IOPath.Combine(Log.AppDataDir, "session.json");
+
+    public static SessionState? Load()
+    {
+        try
+        {
+            return File.Exists(FilePath) ? System.Text.Json.JsonSerializer.Deserialize<SessionState>(File.ReadAllText(FilePath)) : null;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"이어 듣기 읽기 실패: {e.Message}");
+            return null;
+        }
+    }
+
+    public void Save()
+    {
+        try { File.WriteAllText(FilePath, System.Text.Json.JsonSerializer.Serialize(this)); }
+        catch (Exception e) { Log.Warn($"이어 듣기 저장 실패: {e.Message}"); }
+    }
+}

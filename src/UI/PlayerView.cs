@@ -153,7 +153,8 @@ public sealed class PlayerView : Grid
         saveText.VerticalAlignment = VerticalAlignment.Center;
         saveRow.Children.Add(saveText);
         save.Child = saveRow;
-        Tip.Set(save, "재생목록으로 저장은 준비 중이에요");
+        Tip.Set(save, "재생목록에 저장");
+        save.Tapped += (_, _) => SaveQueue(save);
         Anim.Pressable(save);
         head.Children.Add(save);
         _queueTab.Children.Add(head);
@@ -204,7 +205,6 @@ public sealed class PlayerView : Grid
         OnTrack();
         BuildQueue();
         Visibility = Visibility.Collapsed;
-        KeyDown += (_, e) => { if (e.Key == Windows.System.VirtualKey.Escape) CloseRequested?.Invoke(); };
     }
 
     private void ShowTab(int i)
@@ -378,6 +378,34 @@ public sealed class PlayerView : Grid
         }
         sv.Loaded += (_, _) => sv.ChangeView(offset, null, null, true);
         return sv;
+    }
+
+    /// <summary>다음 트랙 '저장' — 지금 목록(자동재생 구간 빼고)을 새 재생목록으로 또는 내 재생목록에</summary>
+    private async void SaveQueue(FrameworkElement at)
+    {
+        var ids = _p.Queue.Take(_p.ShowAutoplayToggle ? _p.AutoStart : _p.Queue.Count).Select(t => t.VideoId).Distinct().ToList();
+        if (ids.Count == 0) return;
+        if (!Auth.IsLoggedIn) { Toast.Show("로그인이 필요해요"); return; }
+        List<(string Title, string PlaylistId, bool Contains)> lists;
+        try { lists = await InnerTube.Instance.MyPlaylists(ids[0]); }
+        catch (Exception e) { Log.Warn($"재생목록 목록 실패: {e.Message}"); lists = new(); }
+        var m = new OneMenu();
+        m.Header($"재생목록에 저장 · {ids.Count}곡");
+        m.Item("새 재생목록", Icons.QueueAdd, async () =>
+        {
+            var name = await Prompt.Ask(XamlRoot, "새 재생목록", _p.QueueTitle ?? "재생목록 이름");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var id = await InnerTube.Instance.CreatePlaylist(name.Trim(), ids);
+            Toast.Show(id != null ? $"'{name.Trim()}' 재생목록을 만들었어요" : "만들지 못했어요");
+        });
+        if (lists.Count > 0) m.Separator();
+        foreach (var (title, id, _) in lists.Take(30))
+            m.Item(title, Icons.PlaylistAddPath, async () =>
+            {
+                var ok = await InnerTube.Instance.AddVideosToPlaylist(id, ids);
+                Toast.Show(ok ? $"'{title}'에 {ids.Count}곡을 저장했어요" : "저장하지 못했어요");
+            });
+        m.Show(at);
     }
 
     /// <summary>관련 항목 — 지금 곡의 '관련' 페이지 셸프들을 패널 안에 세로로</summary>

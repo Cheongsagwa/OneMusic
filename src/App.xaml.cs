@@ -26,6 +26,7 @@ public partial class App : Application
     {
         Log.Info("앱 시작");
         await Auth.Load();
+        UI.Notifier.Register();
         MainWin = new MainWindow();
         MainWin.Activate();
     }

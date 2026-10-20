@@ -335,6 +335,14 @@ public sealed class InnerTube
         return json.P("status").Str() == "STATUS_SUCCEEDED";
     }
 
+    /// <summary>여러 곡을 한 번에 재생목록에 (다음 트랙 '저장')</summary>
+    public async Task<bool> AddVideosToPlaylist(string playlistId, IEnumerable<string> videoIds, CancellationToken ct = default)
+    {
+        var actions = new JsonArray(videoIds.Distinct().Select(v => (JsonNode)new JsonObject { ["action"] = "ACTION_ADD_VIDEO", ["addedVideoId"] = v, ["dedupeOption"] = "DEDUPE_OPTION_SKIP" }).ToArray());
+        var json = await Post("browse/edit_playlist", new JsonObject { ["playlistId"] = playlistId, ["actions"] = actions }, ct);
+        return json.P("status").Str() == "STATUS_SUCCEEDED";
+    }
+
     /// <summary>새 재생목록 (비공개) — 만든 재생목록 ID</summary>
     public async Task<string?> CreatePlaylist(string title, IEnumerable<string> videoIds, string privacy = "PRIVATE", CancellationToken ct = default)
     {
@@ -778,9 +786,12 @@ public sealed class InnerTube
         var album = segs.Count > 1 ? segs[1] : null;
         var thumb = item.P("thumbnail").BestThumb();
         var rest = cols?.Skip(1).ToList() ?? new List<JsonNode?>();
+        var idx = item.P("customIndexColumn", "musicCustomIndexColumnRenderer");
         return new Track(videoId, title, artist, album, thumb, duration,
             rest.Select(ArtistOf).FirstOrDefault(x => x != null), rest.Select(AlbumOf).FirstOrDefault(x => x != null))
         {
+            Rank = idx.P("text").Text() is { Length: > 0 } rank ? rank : null,
+            Trend = idx.P("icon", "iconType").Str(),
             Menu = ParseMenu(item.P("menu", "menuRenderer")),
             VideoType = item.FindFirst("musicVideoType").Str(),
         };

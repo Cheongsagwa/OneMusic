@@ -475,7 +475,7 @@ public sealed class PlayerService
         await Open(t, false, cts.Token);
     }
 
-    private async Task Open(Track t, bool fallback, CancellationToken ct)
+    private async Task Open(Track t, bool fallback, CancellationToken ct, bool play = true)
     {
         try
         {
@@ -511,7 +511,8 @@ public sealed class PlayerService
             if (t.Thumb != null) props.Thumbnail = RandomAccessStreamReference.CreateFromUri(new Uri(Fmt.Thumb(t.Thumb, 300)!));
             item.ApplyDisplayProperties(props);
             _mp.Source = item;
-            _mp.Play();
+            if (play) _mp.Play();
+            else { Loading = false; StateChanged?.Invoke(); }
             Log.Info($"재생: {t.Artist} - {t.Title} ({StreamResolver.Instance.LastSource})");
             // 다음 곡 주소를 미리 받아 둔다
             if (Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
@@ -547,6 +548,15 @@ public sealed class PlayerService
         StateChanged?.Invoke();
     }
 
+    /// <summary>취침 타이머 '지금 곡이 끝나면' — 끝나면 멈춘다</summary>
+    public bool StopAfterCurrent { get; set; }
+
+    public void Pause()
+    {
+        _mp.Pause();
+        StateChanged?.Invoke();
+    }
+
     private void OnEnded()
     {
         // 열자마자 끝났다 = 끊긴 주소 → 새 주소로 한 번 더
@@ -557,6 +567,14 @@ public sealed class PlayerService
             _ = Open(cur, true, _loadCts.Token);
             return;
         }
+        if (StopAfterCurrent)
+        {
+            StopAfterCurrent = false;
+            Seek(0);
+            _mp.Pause();
+            StateChanged?.Invoke();
+            return;
+        }
         if (Repeat == RepeatMode.One)
         {
             Seek(0);
@@ -564,6 +582,38 @@ public sealed class PlayerService
             return;
         }
         _ = Next();
+    }
+
+    // ───────────────────────── 이어 듣기 ─────────────────────────
+
+    /// <summary>앱을 닫을 때의 목록 · 위치 (다시 켜면 그대로 — 멈춘 채로)</summary>
+    public SessionState Snapshot() => new()
+    {
+        Queue = Queue.Take(500).ToList(),
+        Index = Index,
+        Position = Position,
+        AutoStart = AutoStart,
+        Radio = Radio,
+        ShowAutoplayToggle = ShowAutoplayToggle,
+        QueueTitle = QueueTitle,
+        RelatedBrowseId = RelatedBrowseId,
+    };
+
+    public async void Restore(SessionState s)
+    {
+        if (s.Queue.Count == 0 || s.Index < 0 || s.Index >= s.Queue.Count) return;
+        Queue = s.Queue;
+        Index = s.Index;
+        AutoStart = Math.Min(s.AutoStart, Queue.Count);
+        Radio = s.Radio;
+        ShowAutoplayToggle = s.ShowAutoplayToggle;
+        QueueTitle = s.QueueTitle;
+        RelatedBrowseId = s.RelatedBrowseId;
+        QueueChanged?.Invoke();
+        TrackChanged?.Invoke();
+        var cts = _loadCts = new CancellationTokenSource();
+        _resumeAt = s.Position;
+        await Open(Queue[Index], false, cts.Token, play: false);
     }
 
     /// <summary>목록 끝에 다다르면 마지막 곡으로 라디오를 이어 붙인다</summary>

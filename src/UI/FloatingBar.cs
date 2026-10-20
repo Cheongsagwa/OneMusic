@@ -133,6 +133,15 @@ public sealed class FloatingBar : Grid
             el.PointerEntered += (_, _) => SetVolumeOpen(true);
             el.PointerExited += (_, _) => SetVolumeOpen(false);
         }
+        // 볼륨 아이콘 · 슬라이더 위에서 휠을 굴리면 2% 씩 (pear precise-volume)
+        foreach (var el in new FrameworkElement[] { _volume, _volSlider })
+            el.PointerWheelChanged += (_, e) =>
+            {
+                var d = e.GetCurrentPoint(el).Properties.MouseWheelDelta;
+                _p.Volume = Math.Clamp(_p.Volume + Math.Sign(d) * 0.02, 0, 1);
+                Toast.Show($"볼륨 {Math.Round(_p.Volume * 100)}%");
+                e.Handled = true;
+            };
         _repeatIcon.Children.Add(_rep);
         _repeat.Content = _repeatIcon;
         _repeat.Click += () => _p.CycleRepeat();

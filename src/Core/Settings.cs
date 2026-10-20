@@ -11,6 +11,10 @@ public sealed class Settings
     public bool Autoplay { get; set; } = true;
     /// <summary>가사를 먼저 찾을 곳 (☆ 로 바꾼다)</summary>
     public LyricsSource LyricsSource { get; set; } = LyricsSource.LRCLib;
+    /// <summary>창이 뒤에 있을 때 곡이 바뀌면 윈도우 알림 (pear notifications)</summary>
+    public bool Notifications { get; set; } = true;
+    /// <summary>앱을 다시 켜면 듣던 곡 · 위치 그대로</summary>
+    public bool ResumeSession { get; set; } = true;
     public int WindowWidth { get; set; } = 1440;
     public int WindowHeight { get; set; } = 920;
 

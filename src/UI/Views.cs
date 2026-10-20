@@ -209,7 +209,25 @@ public sealed class ShelvesView : ScrollPage
             }
             else shelves = await InnerTube.Instance.BrowseShelves(_browseId);
             Body.Children.Clear();
-            if (chips.Count > 0) Body.Children.Add(BuildChips(chips));
+            if (chips.Count > 0)
+            {
+                var chipRow = BuildChips(chips);
+                if (_browseId == "FEmusic_library_landing")
+                {
+                    // 보관함: 오른쪽에 정렬 (최근 활동 · 가나다순 · 가나다 역순)
+                    var row = new Grid();
+                    row.Children.Add(chipRow);
+                    var sort = SortPill();
+                    sort.HorizontalAlignment = HorizontalAlignment.Right;
+                    sort.VerticalAlignment = VerticalAlignment.Center;
+                    sort.Margin = new Thickness(0, 12, 40, 0);
+                    row.Children.Add(sort);
+                    Body.Children.Add(row);
+                }
+                else Body.Children.Add(chipRow);
+            }
+            if (_sort != 0)
+                shelves = shelves.Select(sh => sh.Grid ? sh with { Items = _sort == 1 ? sh.Items.OrderBy(c => c.Title, StringComparer.CurrentCulture).ToList() : sh.Items.OrderByDescending(c => c.Title, StringComparer.CurrentCulture).ToList() } : sh).ToList();
             if (buttons.Count > 0) Body.Children.Add(BuildButtons(buttons));
             // 보관함 맨 위: 오프라인 저장한 곡
             if (_browseId == "FEmusic_library_landing" && _chipBrowse == null && Offline.Instance.Tracks is { Count: > 0 } saved)
@@ -238,6 +256,41 @@ public sealed class ShelvesView : ScrollPage
             _status.Text = "불러오지 못했어요. 인터넷 연결을 확인해 주세요.";
             _loaded = false;
         }
+    }
+
+    private int _sort;
+    private static readonly string[] SortNames = ["최근 활동", "가나다순", "가나다 역순"];
+
+    /// <summary>보관함 정렬 알약 — 'Recent activity ⌄' 처럼 테두리 알약, 누르면 메뉴</summary>
+    private FrameworkElement SortPill()
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        var label = Theme.Text(SortNames[_sort], 14, FontWeights.SemiBold, Theme.OnSurface);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(label);
+        row.Children.Add(Theme.Icon(Icons.ChevronDown, 16, Colors.White, stroke: true, strokeWidth: 2));
+        var pill = new Border
+        {
+            Height = 36,
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(16, 0, 12, 0),
+            Background = Theme.B(Theme.Chip),
+            Child = row,
+        };
+        pill.PointerEntered += (_, _) => pill.Background = Theme.B(Theme.Selected);
+        pill.PointerExited += (_, _) => pill.Background = Theme.B(Theme.Chip);
+        Anim.Pressable(pill);
+        pill.Tapped += (_, _) =>
+        {
+            var m = new OneMenu();
+            for (var i = 0; i < SortNames.Length; i++)
+            {
+                var k = i;
+                m.Item(i == _sort ? $"{SortNames[i]}  ✓" : SortNames[i], Icons.Stats, () => { _sort = k; Reload(); });
+            }
+            m.Show(pill);
+        };
+        return pill;
     }
 
     /// <summary>
@@ -472,9 +525,25 @@ public sealed class ShelvesView : ScrollPage
         art.Child = img;
         g.Children.Add(art);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2, Margin = new Thickness(8, 0, 0, 0) };
+        if (t.Rank != null)
+        {
+            // 차트: 오르내림(▲ 초록 · ▼ 빨강 · • 그대로) + 순위
+            g.ColumnDefinitions.Insert(1, new ColumnDefinition { Width = new GridLength(52) });
+            var rank = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            var (mark, color) = t.Trend switch
+            {
+                "ARROW_DROP_UP" => ("▲", Color.FromArgb(255, 61, 220, 132)),
+                "ARROW_DROP_DOWN" => ("▼", Color.FromArgb(255, 255, 82, 82)),
+                _ => ("•", Theme.Secondary),
+            };
+            rank.Children.Add(Theme.Text(mark, 11, FontWeights.Bold, color));
+            rank.Children.Add(Theme.Text(t.Rank, 15, FontWeights.Bold, Theme.OnSurface));
+            Grid.SetColumn(rank, 1);
+            g.Children.Add(rank);
+        }
         text.Children.Add(Theme.Text(t.Title, 14, FontWeights.Bold, Theme.OnSurface));
         text.Children.Add(Theme.Text(t.Artist, 14, FontWeights.Normal, Theme.Secondary));
-        Grid.SetColumn(text, 1);
+        Grid.SetColumn(text, t.Rank != null ? 2 : 1);
         g.Children.Add(text);
         Anim.Pressable(art);
         g.Tapped += (_, _) => _ = PlayerService.Instance.PlaySong(t);

@@ -11,6 +11,8 @@ namespace OneMusic.UI;
 public sealed class MainWindow : Window
 {
     public PlayerService Player { get; }
+    /// <summary>창이 앞에 있는지 (곡 바뀜 알림은 뒤에 있을 때만)</summary>
+    public bool IsActiveWindow { get; private set; } = true;
     public Grid Root { get; } = new();
     public ShelvesView Home { get; private set; } = null!;
     public ShelvesView Explore { get; private set; } = null!;
@@ -50,7 +52,11 @@ public sealed class MainWindow : Window
             Settings.Current.WindowHeight = AppWindow.Size.Height;
             Settings.Current.Save();
             App.SaveSession();
+            // 이어 듣기: 지금 목록 · 위치를 남긴다
+            if (Settings.Current.ResumeSession) Player.Snapshot().Save();
+            Notifier.Unregister();
         };
+        Activated += (_, e) => IsActiveWindow = e.WindowActivationState != WindowActivationState.Deactivated;
         Build();
         LyricsState.Instance.Load(null);
         Player.TrackChanged += OnTrack;
@@ -106,11 +112,7 @@ public sealed class MainWindow : Window
         rightBar.Children.Add(_fwdBtn);
         var settings = new IconButton(40) { Content = Theme.Icon(24, Colors.White, Icons.Settings), Margin = new Thickness(16, 0, 0, 0) };
         Tip.Set(settings, "계정");
-        var flyout = new MenuFlyout();
-        var logout = new MenuFlyoutItem { Text = "로그아웃" };
-        logout.Click += (_, _) => { Auth.Logout(); ReloadAll(); };
-        flyout.Items.Add(logout);
-        settings.Click += () => flyout.ShowAt(settings);
+        settings.Click += () => AccountMenu.Show(this, settings);
         rightBar.Children.Add(settings);
         _nav.Children.Add(rightBar);
         _account = settings;
@@ -158,14 +160,19 @@ public sealed class MainWindow : Window
         Root.Loaded += (_, _) =>
         {
             Home.LoadOnce();
+            // 이어 듣기: 지난번 목록 · 위치 (멈춘 채로)
+            if (Settings.Current.ResumeSession && SessionState.Load() is { } session) Player.Restore(session);
             if (Player.Current == null) ShowBar(false);
         };
-        Root.KeyDown += (_, e) =>
+        // 단축키 — 목록 · 스크롤이 키를 먼저 써도(handled) 받도록
+        Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
         {
-            if (e.Key == Windows.System.VirtualKey.Escape && OneMenu.IsOpen) OneMenu.CloseAll();
-            else if (e.Key == Windows.System.VirtualKey.Escape && PlayerPage.IsOpen) ClosePlayer();
-            else if (e.Key == Windows.System.VirtualKey.Escape && e.OriginalSource is not TextBox) Back();
-        };
+            if (e.Key != Windows.System.VirtualKey.Escape && Shortcuts.Handle(this, e)) { e.Handled = true; return; }
+            if (e.Key != Windows.System.VirtualKey.Escape) return;
+            if (OneMenu.IsOpen) OneMenu.CloseAll();
+            else if (PlayerPage.IsOpen) ClosePlayer();
+            else if (e.OriginalSource is not TextBox) Back();
+        }), true);
         // 마우스 뒤로 버튼
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, e) =>
         {
@@ -257,6 +264,12 @@ public sealed class MainWindow : Window
     }
 
     public void ShowHome() => _rail.Select(0);
+
+    public void FocusSearch()
+    {
+        ClosePlayer();
+        _search.Focus(FocusState.Programmatic);
+    }
 
     public void ReloadAll()
     {
@@ -434,6 +447,7 @@ public sealed class MainWindow : Window
     }
 
     private bool _barShown = true;
+    private string? _notifiedFor;
 
     /// <summary>재생할 곡이 없으면 재생 바를 아래로 내려 숨긴다 (YT Music: 처음 · 현재 재생목록 닫기)</summary>
     private void ShowBar(bool show)
@@ -452,6 +466,11 @@ public sealed class MainWindow : Window
         LyricsState.Instance.Load(t);
         ShowBar(t != null);
         if (t == null) return;
+        if (t.VideoId != _notifiedFor)
+        {
+            _notifiedFor = t.VideoId;
+            Notifier.TrackChanged(t, IsActiveWindow);
+        }
         var c = await AlbumColor.FromUrl(t.Thumb);
         if (Player.Current?.VideoId != t.VideoId) return;
         _accent = c;
