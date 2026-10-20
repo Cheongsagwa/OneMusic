@@ -62,11 +62,13 @@ public sealed class WaveSeekBar : Grid
         Unloaded += (_, _) =>
         {
             StopRendering();
+            _idle?.Stop();
             _canvas.RemoveFromVisualTree();
         };
         PointerPressed += (_, e) =>
         {
             _dragging = true;
+            StartRendering();
             CapturePointer(e.Pointer);
             _dragFraction = Fraction(e.GetCurrentPoint(this).Position.X);
             _canvas.Invalidate();
@@ -113,8 +115,36 @@ public sealed class WaveSeekBar : Grid
 
     private double Fraction(double x) => TrackWidth <= 0 ? 0 : Math.Clamp((x - PadX) / TrackWidth, 0, 1);
 
+    private DispatcherQueueTimer? _idle;
+    private double _idleProgress = -1;
+
+    /// <summary>
+    /// 멈춰서 파도가 다 가라앉으면 프레임 구독을 끊고 0.25초마다 위치만 다시 그린다
+    /// (프레임 구독이 있으면 앱 전체가 1초에 60번 다시 그려져서). 재생되면 다시 매 프레임
+    /// </summary>
+    private void Idle()
+    {
+        StopRendering();
+        if (_idle == null)
+        {
+            _idle = DispatcherQueue.CreateTimer();
+            _idle.Interval = TimeSpan.FromMilliseconds(250);
+            _idle.Tick += (_, _) =>
+            {
+                if (IsPlaying() || _dragging) { StartRendering(); return; }
+                var p = Progress();
+                if (Math.Abs(p - _idleProgress) < 1e-6) return;
+                _idleProgress = p;
+                _canvas.Invalidate();
+            };
+        }
+        _idleProgress = Progress();
+        _idle.Start();
+    }
+
     private void StartRendering()
     {
+        _idle?.Stop();
         if (_rendering) return;
         _rendering = true;
         _lastTicks = 0;
@@ -147,8 +177,9 @@ public sealed class WaveSeekBar : Grid
 
         var end = (float)(Progress() * TrackWidth);
         if (_amp > 0) Advance(dt * _flow, end);
-        // 멈춰서 완전히 가라앉은 뒤엔 위치가 바뀔 때만 다시 그린다 (1초에 몇 번)
-        if (_amp > 0 || _dragging || now % 250 < 17) _canvas.Invalidate();
+        _canvas.Invalidate();
+        // 멈춰서 완전히 가라앉았으면 쉰다 (위치는 느린 타이머로)
+        if (_amp == 0 && !_dragging && !playing) Idle();
     }
 
     private float R(float a, float b) => a + (float)_rand.NextDouble() * (b - a);

@@ -7,6 +7,7 @@ namespace OneMusic.UI;
 public sealed class TrackRow : Grid
 {
     private readonly Border _hover;
+    private readonly XRect _divider;
     private readonly Grid _artBox;
     private Border? _playOverlay;
     private Equalizer? _eq;
@@ -24,8 +25,9 @@ public sealed class TrackRow : Grid
         _hover = new Border { CornerRadius = new CornerRadius(14), Background = Theme.B(Theme.ChipHover) };
         Anim.V(_hover).Opacity = 0;
         Children.Add(_hover);
-        if (divider)
-            Children.Add(new XRect { Height = 1, Fill = Theme.B(Theme.Divider), VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(8, 0, 8, 0) });
+        _divider = new XRect { Height = 1, Fill = Theme.B(Theme.Divider), VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(8, 0, 8, 0) };
+        Divider = divider;
+        Children.Add(_divider);
 
         var g = new Grid { Margin = new Thickness(8, 0, 8, 0) };
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -107,6 +109,12 @@ public sealed class TrackRow : Grid
     /// <summary>다음 트랙 목록 안의 자리 (있으면 우클릭 메뉴에 '현재 재생목록에서 삭제')</summary>
     public int? QueueIndex { get; set; }
 
+    /// <summary>아래 구분선 (다음 트랙 목록은 줄을 다시 쓰므로 바꿀 수 있게)</summary>
+    public bool Divider
+    {
+        set => _divider.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     /// <summary>지금 재생 중인 곡 표시 — 아트 오른쪽 아래 이퀄라이저</summary>
     public void SetCurrent(bool current)
     {
@@ -155,19 +163,56 @@ public sealed class Equalizer : StackPanel
         Unloaded += (_, _) => Stop();
     }
 
+    private DispatcherQueueTimer? _idle;
+
     private void Start()
     {
         if (_running) return;
         _running = true;
+        _last = 0;
+        _idle?.Stop();
         CompositionTarget.Rendering += OnFrame;
     }
 
     public void Stop()
     {
+        _idle?.Stop();
         if (!_running) return;
         _running = false;
         CompositionTarget.Rendering -= OnFrame;
     }
+
+    /// <summary>
+    /// 멈춰서 점으로 가라앉았거나 화면에 안 보이면(재생 화면이 닫힘 등) 프레임 구독을 끊고
+    /// 0.4초마다만 살펴본다 — 프레임 구독이 있으면 앱 전체가 계속 다시 그려져서
+    /// </summary>
+    private void Idle()
+    {
+        if (_running)
+        {
+            _running = false;
+            CompositionTarget.Rendering -= OnFrame;
+        }
+        if (_idle == null)
+        {
+            _idle = DispatcherQueue.CreateTimer();
+            _idle.Interval = TimeSpan.FromMilliseconds(400);
+            _idle.Tick += (_, _) =>
+            {
+                if (IsLoaded && Shown() && (PlayerService.Instance.IsPlaying || _amp > 0)) Start();
+            };
+        }
+        _idle.Start();
+    }
+
+    private bool Shown()
+    {
+        for (DependencyObject? d = this; d != null; d = VisualTreeHelper.GetParent(d))
+            if (d is UIElement { Visibility: Visibility.Collapsed }) return false;
+        return true;
+    }
+
+    private int _frames;
 
     private void OnFrame(object? s, object e)
     {
@@ -178,6 +223,12 @@ public sealed class Equalizer : StackPanel
         var playing = PlayerService.Instance.IsPlaying;
         _amp += ((playing ? 1 : 0) - _amp) * (1 - MathF.Exp(-dt / (playing ? 0.12f : 0.16f)));
         if (!playing && _amp < 0.005f) _amp = 0;
+        if ((!playing && _amp == 0) || (++_frames % 15 == 0 && !Shown()))
+        {
+            foreach (var b in _bars) b.Height = 3 + 13 * _amp;
+            Idle();
+            return;
+        }
         _t += dt * (0.4f + 0.6f * _amp);
         for (var i = 0; i < 3; i++)
         {

@@ -114,6 +114,10 @@ public sealed class LyricsView : Grid
     private float _userOffset; // 휠로 직접 굴린 양 (몇 초 뒤 제자리로)
     private long _lastWheel;
     private readonly List<(float Top, float Height)> _layout = new();
+    /// <summary>줄마다 글자 배치를 한 번만 만들어 둔다 (지금 줄 굵게 · 나머지) — 매 프레임 새로 만들지 않게</summary>
+    private readonly List<(CanvasTextLayout On, CanvasTextLayout? Off)> _text = new();
+    private static readonly CanvasTextFormat FmtOn = Format(true), FmtOff = Format(false);
+    private bool _loaded, _looping, _sleeping;
     private float _layoutWidth = -1;
     private List<LyricLine>? _layoutLines;
     private readonly float[] _glow = new float[4096];
@@ -133,16 +137,25 @@ public sealed class LyricsView : Grid
         _empty.VerticalAlignment = VerticalAlignment.Center;
         Children.Add(_empty);
         LyricsState.Instance.Changed += OnLyricsChanged;
-        Loaded += (_, _) => { CompositionTarget.Rendering += OnFrame; OnLyricsChanged(); };
-        Unloaded += (_, _) => CompositionTarget.Rendering -= OnFrame;
+        PlayerService.Instance.StateChanged += Wake;
+        _canvas.CreateResources += (_, _) => ClearText();
+        Loaded += (_, _) => { _loaded = true; SyncLoop(); OnLyricsChanged(); };
+        Unloaded += (_, _) => { _loaded = false; SyncLoop(); };
         Tapped += OnTapped;
-        PointerMoved += (_, e) => _hover = LineAt((float)e.GetCurrentPoint(this).Position.Y);
-        PointerExited += (_, _) => _hover = -1;
+        PointerMoved += (_, e) =>
+        {
+            var h = LineAt((float)e.GetCurrentPoint(this).Position.Y);
+            if (h == _hover) return;
+            _hover = h;
+            Wake();
+        };
+        PointerExited += (_, _) => { _hover = -1; Wake(); };
         PointerWheelChanged += (_, e) =>
         {
             _userOffset -= e.GetCurrentPoint(this).Properties.MouseWheelDelta * 0.6f;
             _lastWheel = Environment.TickCount64;
             e.Handled = true;
+            Wake();
         };
         ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Hand);
     }
@@ -154,8 +167,44 @@ public sealed class LyricsView : Grid
         set
         {
             _active = value;
+            _sleeping = false;
+            SyncLoop();
             if (value) _canvas.Invalidate();
         }
+    }
+
+    /// <summary>
+    /// 매 프레임 그리기는 가사 탭이 보일 때만, 그리고 멈춘 채 다 가라앉으면 쉰다
+    /// (프레임 구독만 있어도 앱 전체가 1초에 60번 다시 그려져서)
+    /// </summary>
+    private void SyncLoop()
+    {
+        var want = _loaded && _active && !_sleeping;
+        if (want == _looping) return;
+        _looping = want;
+        if (want)
+        {
+            _last = 0;
+            CompositionTarget.Rendering += OnFrame;
+        }
+        else CompositionTarget.Rendering -= OnFrame;
+    }
+
+    private void Wake()
+    {
+        _sleeping = false;
+        SyncLoop();
+    }
+
+    private void ClearText()
+    {
+        foreach (var (on, off) in _text)
+        {
+            on.Dispose();
+            off?.Dispose();
+        }
+        _text.Clear();
+        _layoutLines = null;
     }
 
     private void OnLyricsChanged()
@@ -167,6 +216,7 @@ public sealed class LyricsView : Grid
         _current = -1;
         if (!s.Synced) _scroll = 0;
         Array.Clear(_glow);
+        Wake();
         _canvas.Invalidate();
     }
 
@@ -184,24 +234,30 @@ public sealed class LyricsView : Grid
     {
         var lines = LyricsState.Instance.Lines;
         if (lines == _layoutLines && Math.Abs(width - _layoutWidth) < 0.5f) return;
+        ClearText();
         _layoutLines = lines;
         _layoutWidth = width;
         _layout.Clear();
         if (lines == null) return;
         var y = 0f;
-        using var fmt = Format(true);
         foreach (var l in lines)
         {
-            using var tl = new CanvasTextLayout(sender, string.IsNullOrEmpty(l.Text) ? "♪" : l.Text, fmt, width, 9999);
+            var tl = new CanvasTextLayout(sender, string.IsNullOrEmpty(l.Text) ? "♪" : l.Text, FmtOn, width, 9999);
             var h = (float)tl.LayoutBounds.Height;
             _layout.Add((y, h));
+            _text.Add((tl, null));
             y += h + LineGap;
         }
     }
 
     private void OnFrame(object? sender, object e)
     {
-        if (!_active || LyricsState.Instance.Lines == null) return;
+        if (!_active || LyricsState.Instance.Lines == null)
+        {
+            _sleeping = true;
+            SyncLoop();
+            return;
+        }
         var now = Environment.TickCount64;
         if (now - _last < 15) return;
         var dt = _last == 0 ? 0.016f : Math.Min((now - _last) / 1000f, 0.1f);
@@ -223,12 +279,20 @@ public sealed class LyricsView : Grid
         var target = _scrollTarget + _userOffset;
         _scroll += (target - _scroll) * (1 - MathF.Exp(-dt / 0.14f));
         // 줄 상태 전환 440ms (ease) ≈ 시간 상수 0.11초
+        var settled = MathF.Abs(target - _scroll) < 0.3f && (!synced || MathF.Abs(_userOffset) < 0.3f);
         for (var i = 0; i < _layout.Count && i < _glow.Length; i++)
         {
             var want = i == idx || !synced ? 1f : 0f;
             _glow[i] += (want - _glow[i]) * (1 - MathF.Exp(-dt / 0.11f));
+            if (MathF.Abs(want - _glow[i]) > 0.003f) settled = false;
         }
         _canvas.Invalidate();
+        // 멈춰 있고(또는 시간 없는 가사) 스크롤 · 빛 · 흔들림이 다 끝났으면 쉰다 — 재생 · 마우스 · 휠 · 가사 바뀜에 깬다
+        if (settled && (!p.IsPlaying || !synced) && now - _currentAt > 6500)
+        {
+            _sleeping = true;
+            SyncLoop();
+        }
     }
 
     private int LineAt(float y)
@@ -252,8 +316,6 @@ public sealed class LyricsView : Grid
         EnsureLayout(sender, w);
         var ds = args.DrawingSession;
         var synced = LyricsState.Instance.Synced;
-        using var fmtOff = Format(false);
-        using var fmtOn = Format(true);
         var now = Environment.TickCount64;
         for (var i = 0; i < _layout.Count; i++)
         {
@@ -284,7 +346,13 @@ public sealed class LyricsView : Grid
                 var wt = Math.Clamp(t * 2, 0, 1);
                 wobble = wt < 1 / 3f ? 1.75f * wt * 3 : wt < 2 / 3f ? 1.75f - 3.5f * (wt - 1 / 3f) * 3 : -1.75f + 1.75f * (wt - 2 / 3f) * 3;
             }
-            using var tl = new CanvasTextLayout(sender, text, isCurrent || !synced ? fmtOn : fmtOff, w, 9999);
+            var (on, off) = _text[i];
+            if (!(isCurrent || !synced) && off == null)
+            {
+                off = new CanvasTextLayout(sender, text, FmtOff, w, 9999);
+                _text[i] = (on, off);
+            }
+            var tl = isCurrent || !synced ? on : off!;
             var x = Inset;
             var oldTransform = ds.Transform;
             // 크기는 왼쪽 가운데 기준 (transform-origin: 0 50%)

@@ -255,22 +255,16 @@ public sealed class FloatingBar : Grid
     private void SetVolumeOpen(bool open)
     {
         _volHover = open;
-        _volCloseTimer ??= DispatcherQueue.GetForCurrentThread().CreateTimer();
-        _volCloseTimer.Stop();
-        if (open) AnimateWidth(_volSlider, 112, 1);
-        else
+        if (_volCloseTimer == null)
         {
+            _volCloseTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
             _volCloseTimer.Interval = TimeSpan.FromMilliseconds(260);
             _volCloseTimer.IsRepeating = false;
-            _volCloseTimer.Tick += CloseVolume;
-            _volCloseTimer.Start();
+            _volCloseTimer.Tick += (_, _) => { if (!_volHover && !_volSlider.Dragging) AnimateWidth(_volSlider, 0, 0); };
         }
-    }
-
-    private void CloseVolume(DispatcherQueueTimer t, object o)
-    {
-        t.Tick -= CloseVolume;
-        if (!_volHover && !_volSlider.Dragging) AnimateWidth(_volSlider, 0, 0);
+        _volCloseTimer.Stop();
+        if (open) AnimateWidth(_volSlider, 112, 1);
+        else _volCloseTimer.Start();
     }
 
     /// <summary>폭을 부드럽게 바꾼다 (레이아웃이 함께 움직여서 옆 요소들도 자연스럽게 비켜 감)</summary>
@@ -296,8 +290,8 @@ public sealed class FloatingBar : Grid
 
     private void Tick()
     {
-        var dur = _p.Duration;
-        _time.Text = $"{Fmt.Time(_p.Position)} / {Fmt.Time(dur)}";
+        var time = $"{Fmt.Time(_p.Position)} / {Fmt.Time(_p.Duration)}";
+        if (time != _time.Text) _time.Text = time;
         if (_p.IsPlaying != _wasPlaying && !_p.IsBuffering) OnState();
 
         // 가사 한 줄

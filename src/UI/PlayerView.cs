@@ -90,6 +90,9 @@ public sealed class PlayerView : Grid
     private readonly StackPanel _relatedList = new() { Spacing = 8 };
     private string? _relatedFor;
     private readonly List<TrackRow> _rows = new();
+    /// <summary>곡마다 한 번 만든 줄을 다시 쓴다 (칩을 바꾸거나 곡을 넣을 때마다 수백 줄을 새로 만들지 않게)</summary>
+    private readonly Dictionary<Track, TrackRow> _rowCache = new(ReferenceEqualityComparer.Instance);
+    private bool _queueDirty;
     private readonly Grid _panel;
     private readonly Grid _left = new();
     public bool IsOpen { get; private set; }
@@ -232,6 +235,7 @@ public sealed class PlayerView : Grid
         Anim.Rise(_left, 0);
         Anim.Rise(_panel, 60);
         _lyrics.Active = _tabs.Selected == 1;
+        if (_queueDirty) BuildQueue();
         ScrollToCurrent();
     }
 
@@ -277,25 +281,41 @@ public sealed class PlayerView : Grid
     /// </summary>
     private void BuildQueue()
     {
+        // 닫혀 있으면 열 때 한 번에 (재생 화면 밖에서 목록이 바뀔 때마다 그리지 않게)
+        if (!IsOpen && _rows.Count > 0)
+        {
+            _queueDirty = true;
+            return;
+        }
+        _queueDirty = false;
         _source.Text = _p.QueueTitle ?? (_p.Current != null ? $"{_p.Current.Title} 믹스" : "");
         _autoplay.Set(_p.Autoplay, false);
+        foreach (var r in _rows) (r.Parent as Panel)?.Children.Remove(r);
         _queue.Children.Clear();
         _rows.Clear();
         var q = _p.Queue;
         var autoStart = Math.Min(_p.AutoStart, q.Count);
+        // 칩을 바꿔 다시 받는 동안: 지금 곡 뒤만 흐리게
+        var dimFrom = _p.AutoLoading ? (_p.ShowAutoplayToggle ? (q.Count > autoStart ? autoStart : int.MaxValue) : (q.Count > 1 ? _p.Index + 1 : int.MaxValue)) : int.MaxValue;
         void AddRows(int from, int to, Panel into)
         {
             for (var i = from; i < to; i++)
             {
-                var idx = i;
-                var row = new TrackRow(q[i], divider: i < to - 1 && i != _p.Index && i + 1 != _p.Index);
-                row.Click += r => _ = _p.PlayAt(idx);
-                row.QueueIndex = idx;
-                EnableDrag(row, idx);
+                var row = Row(q[i]);
+                row.Divider = i < to - 1 && i != _p.Index && i + 1 != _p.Index;
+                row.QueueIndex = i;
                 row.SetCurrent(i == _p.Index);
+                var dim = i >= dimFrom ? 0.45f : 1f;
+                if (Math.Abs(Anim.V(row).Opacity - dim) > 0.01f) Anim.Opacity(row, dim, 220);
                 _rows.Add(row);
                 into.Children.Add(row);
             }
+        }
+        // 목록에서 빠진 곡의 줄은 버린다
+        if (_rowCache.Count > q.Count + 32)
+        {
+            var keep = new HashSet<Track>(q, ReferenceEqualityComparer.Instance);
+            foreach (var k in _rowCache.Keys.Where(k => !keep.Contains(k)).ToList()) _rowCache.Remove(k);
         }
         // 검색에서 튼 곡이 아니면: 알고리즘 칩이 맨 위, 목록은 하나로 (자동재생 토글 없음)
         _autoRow.Visibility = _p.ShowAutoplayToggle ? Visibility.Visible : Visibility.Collapsed;
@@ -310,8 +330,6 @@ public sealed class PlayerView : Grid
                 w.Margin = new Thickness(16, 8, 8, 8);
                 all.Children.Add(w);
             }
-            // 칩을 바꿔 다시 받는 동안: 지금 곡까지는 그대로, 그 뒤만 흐리게
-            for (var k = _p.Index + 1; k < _rows.Count; k++) Anim.Opacity(_rows[k], _p.AutoLoading && q.Count > 1 ? 0.45f : 1f, 220);
             _queue.Children.Add(all);
             return;
         }
@@ -333,8 +351,6 @@ public sealed class PlayerView : Grid
             wait.Margin = new Thickness(16, 8, 8, 8);
             autoRows.Children.Add(wait);
         }
-        // 칩을 바꿔 다시 받는 동안은 지금 목록을 흐리게
-        Anim.Opacity(autoRows, _p.AutoLoading && q.Count > autoStart ? 0.45f : 1f, 220);
         section.Children.Add(autoRows);
         _queue.Children.Add(section);
     }
@@ -380,8 +396,19 @@ public sealed class PlayerView : Grid
         return sv;
     }
 
+    /// <summary>곡의 줄 (처음이면 만들고, 있으면 다시 쓴다)</summary>
+    private TrackRow Row(Track t)
+    {
+        if (_rowCache.TryGetValue(t, out var row)) return row;
+        row = new TrackRow(t);
+        row.Click += r => { if (r.QueueIndex is { } i) _ = _p.PlayAt(i); };
+        EnableDrag(row);
+        _rowCache[t] = row;
+        return row;
+    }
+
     /// <summary>다음 트랙 줄 끌어서 순서 바꾸기 (YT Music 처럼) — 놓을 자리에 흰 줄이 보인다</summary>
-    private void EnableDrag(TrackRow row, int idx)
+    private void EnableDrag(TrackRow row)
     {
         row.CanDrag = true;
         row.AllowDrop = true;
@@ -389,7 +416,7 @@ public sealed class PlayerView : Grid
         row.Children.Add(line);
         row.DragStarting += (_, e) =>
         {
-            e.Data.SetText($"queue:{idx}");
+            e.Data.SetText($"queue:{row.QueueIndex}");
             e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
             Anim.Opacity(row, 0.4f, Anim.Fast);
         };
@@ -406,7 +433,7 @@ public sealed class PlayerView : Grid
             line.Opacity = 0;
             if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text)) return;
             var text = await e.DataView.GetTextAsync();
-            if (text.StartsWith("queue:") && int.TryParse(text[6..], out var from))
+            if (text.StartsWith("queue:") && int.TryParse(text[6..], out var from) && row.QueueIndex is { } idx)
                 _p.MoveQueue(from, from < idx ? idx - 1 : idx);
         };
     }
@@ -505,6 +532,7 @@ public sealed class PlayerView : Grid
         {
             try
             {
+                _queue.UpdateLayout();
                 var pt = row.TransformToVisual(_queue).TransformPoint(new Point(0, 0));
                 _queueScroll.ChangeView(null, Math.Max(0, pt.Y - 60), null, false);
             }
