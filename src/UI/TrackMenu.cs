@@ -69,6 +69,21 @@ public static class TrackMenu
         m.Show(at, pos);
     }
 
+    /// <summary>YT 동작 하나 실행 (머리 버튼 · 토글) — 성공하면 true</summary>
+    public static async Task<bool> RunEndpoint(string? endpoint, string text, FrameworkElement at, Card? card)
+    {
+        try
+        {
+            if (endpoint == null) return false;
+            return await RunNode(JsonNode.Parse(endpoint), text, new Ctx(at, null, null, card, null));
+        }
+        catch (Exception e)
+        {
+            Log.Error($"동작 실패: {text}", e);
+            return false;
+        }
+    }
+
     // ───────────────────────── 만들기 ─────────────────────────
 
     private sealed record Ctx(FrameworkElement At, Point? Pos, Track? Track, Card? Card, int? QueueIndex);

@@ -75,6 +75,26 @@ public static class Tip
         Anim.Scale(_box, 1f);
     }
 
+    /// <summary>지금 바로 그 자리 위에 띄운다 (재생 바 위 시간 미리보기) — 창 기준 x, 위쪽 y</summary>
+    public static void ShowNow(string text, double x, double y)
+    {
+        if (_box == null || _text == null) return;
+        _gen++;
+        _current = null;
+        _text.Text = text;
+        _box.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var w = _box.DesiredSize.Width;
+        var h = _box.DesiredSize.Height;
+        var win = _box.XamlRoot?.Size ?? new Size(4000, 4000);
+        _box.Margin = new Thickness(Math.Clamp(x - w / 2, 8, Math.Max(8, win.Width - w - 8)), Math.Max(8, y - h - 10), 0, 0);
+        if (Anim.V(_box).Opacity < 0.99f)
+        {
+            Anim.V(_box).Scale = Vector3.One;
+            Anim.SetTranslation(_box, Vector3.Zero);
+            Anim.Opacity(_box, 1, Anim.Fast);
+        }
+    }
+
     public static void Hide()
     {
         _gen++;

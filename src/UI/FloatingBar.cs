@@ -52,6 +52,7 @@ public sealed class FloatingBar : Grid
         _wave.Margin = new Thickness(28 - 17, -9, 28 - 17, 0);
         _wave.Progress = () => _p.Duration > 0 ? _p.Position / _p.Duration : 0;
         _wave.IsPlaying = () => _p.IsPlaying;
+        _wave.Duration = () => _p.Duration;
         _wave.Seek += f => _p.Seek(f * _p.Duration);
         Children.Add(_wave);
 

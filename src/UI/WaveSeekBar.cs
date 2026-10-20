@@ -48,6 +48,8 @@ public sealed class WaveSeekBar : Grid
     /// <summary>재생 위치 (0~1) 를 매 프레임 물어볼 함수</summary>
     public Func<double> Progress { get; set; } = () => 0;
     public Func<bool> IsPlaying { get; set; } = () => false;
+    /// <summary>곡 길이(초) — 마우스를 올린 자리의 시간을 보여 줄 때</summary>
+    public Func<double> Duration { get; set; } = () => 0;
     public event Action<double>? Seek;
 
     public WaveSeekBar()
@@ -71,16 +73,26 @@ public sealed class WaveSeekBar : Grid
         };
         PointerMoved += (_, e) =>
         {
+            var x = e.GetCurrentPoint(this).Position.X;
+            // 마우스를 올린 자리의 시간 (YT Music 재생 바처럼 말풍선으로)
+            var dur = Duration();
+            if (dur > 0)
+            {
+                var p = TransformToVisual(null).TransformPoint(new Point(x, 0));
+                Tip.ShowNow(Fmt.Time(Fraction(x) * dur), p.X, p.Y + 10);
+            }
             if (!_dragging) return;
-            _dragFraction = Fraction(e.GetCurrentPoint(this).Position.X);
+            _dragFraction = Fraction(x);
             _canvas.Invalidate();
         };
+        PointerExited += (_, _) => { if (!_dragging) Tip.Hide(); };
         PointerReleased += (_, e) =>
         {
             if (!_dragging) return;
             _dragging = false;
             ReleasePointerCapture(e.Pointer);
             Seek?.Invoke(_dragFraction);
+            Tip.Hide();
         };
         PointerCaptureLost += (_, _) => _dragging = false;
         ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Hand);

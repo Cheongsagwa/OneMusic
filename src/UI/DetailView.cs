@@ -207,6 +207,14 @@ public sealed class DetailView : ScrollPage
         }
         if (page.RadioPlaylistId is { } radio)
             buttons.Children.Add(Pill("라디오", false, () => PlayPlaylist(radio, $"{page.Title} 라디오"), c => Theme.Icon(Icons.Radio, 20, c, stroke: true)));
+        if (page.ChannelId is { } channel) buttons.Children.Add(SubscribeButton(channel, page.Subscribed));
+        if (page.Menu != null)
+        {
+            FrameworkElement? moreBtn = null;
+            moreBtn = Circle(44, false, Icons.More, false, "더보기", () =>
+                TrackMenu.ShowCard(moreBtn!, AsCard(page), moreBtn!.TransformToVisual(null).TransformPoint(new Point(-110, 50))));
+            buttons.Children.Add(moreBtn);
+        }
         if (buttons.Children.Count > 0) info.Children.Add(buttons);
 
         Grid.SetColumn(info, 1);
@@ -265,20 +273,30 @@ public sealed class DetailView : ScrollPage
 
         // 버튼: 셔플 · ▶(64 흰 동그라미) · 링크 복사
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
-        if (page.Tracks.Count > 0) buttons.Children.Add(Circle(40, false, Icons.Download, true, "다운로드 · 오프라인 저장", () =>
+        if (page.Tracks.Count > 0)
         {
-            var f = new MenuFlyout();
-            var dl = new MenuFlyoutItem { Text = $"다운로드 ({page.Tracks.Count}곡, 음악 폴더)" };
-            dl.Click += (_, _) => TrackMenu.DownloadAll(page.Tracks);
-            var off = new MenuFlyoutItem { Text = $"오프라인 저장 ({page.Tracks.Count}곡)" };
-            off.Click += (_, _) => TrackMenu.SaveOffline(page.Tracks);
-            f.Items.Add(dl);
-            f.Items.Add(off);
-            f.ShowAt(buttons);
-        }));
+            FrameworkElement? dlBtn = null;
+            dlBtn = Circle(40, false, Icons.Download, true, "다운로드 · 오프라인 저장", () =>
+            {
+                var m = new OneMenu();
+                m.Item($"다운로드 ({page.Tracks.Count}곡, 음악 폴더)", Icons.Download, () => TrackMenu.DownloadAll(page.Tracks));
+                m.Item($"오프라인 저장 ({page.Tracks.Count}곡)", Icons.Download, () => TrackMenu.SaveOffline(page.Tracks));
+                m.Show(dlBtn!);
+            });
+            buttons.Children.Add(dlBtn);
+        }
+        // 보관함에 저장 (+ ↔ ✓) — YT 머리 버튼 그대로
+        if (page.LibraryToggle is { } lib) buttons.Children.Add(LibraryButton(page, lib));
         if (page.Tracks.Count > 1) buttons.Children.Add(Circle(40, false, Icons.Shuffle, true, "셔플", () => PlayAll(true)));
         if (page.Tracks.Count > 0) buttons.Children.Add(Circle(64, true, Icons.Play, false, "재생", () => PlayAll(false)));
-        buttons.Children.Add(Circle(40, false, Icons.Link, true, "링크 복사", () => CopyLink(page)));
+        buttons.Children.Add(Circle(40, false, Icons.Share, true, "공유 (링크 복사)", () => CopyLink(page)));
+        if (page.Menu != null)
+        {
+            FrameworkElement? moreBtn = null;
+            moreBtn = Circle(40, false, Icons.More, false, "더보기", () =>
+                TrackMenu.ShowCard(moreBtn!, AsCard(page), moreBtn!.TransformToVisual(null).TransformPoint(new Point(-112, 46))));
+            buttons.Children.Add(moreBtn);
+        }
         left.Children.Add(buttons);
         if (page.Description != null)
         {
@@ -320,6 +338,39 @@ public sealed class DetailView : ScrollPage
         return g;
     }
 
+    /// <summary>이 화면을 카드처럼 (⋮ 메뉴 · 공유 · 재생에 쓴다)</summary>
+    private Card AsCard(PageData page) =>
+        new(page.Title, page.Subtitle ?? "", page.Thumb, false, null, page.AudioPlaylistId, _browseId,
+            page.Kind == PageKind.Album ? "MUSIC_PAGE_TYPE_ALBUM" : page.Kind == PageKind.Artist ? "MUSIC_PAGE_TYPE_ARTIST" : "MUSIC_PAGE_TYPE_PLAYLIST")
+        { Menu = page.Menu };
+
+    /// <summary>'보관함에 저장' 동그라미 — 누르면 YT 동작을 보내고 + ↔ ✓ 로 바뀐다</summary>
+    private FrameworkElement LibraryButton(PageData page, YtMenuItem lib)
+    {
+        var on = lib.Toggled;
+        var b = new IconButton(40);
+        void Draw()
+        {
+            var g = new Grid();
+            g.Children.Add(new XEllipse { Width = 40, Height = 40, Fill = Theme.B(Theme.Chip) });
+            g.Children.Add(Theme.Icon(on ? Icons.LibrarySaved : Icons.LibraryAdd, 20, Colors.White, stroke: true, strokeWidth: 2));
+            b.Content = g;
+        }
+        Draw();
+        Tip.Set(b, on ? (lib.ToggledText ?? "보관함에서 삭제") : lib.Text);
+        b.Click += async () =>
+        {
+            var ep = on ? lib.ToggledEndpoint ?? lib.Endpoint : lib.Endpoint;
+            var ok = await TrackMenu.RunEndpoint(ep, on ? "보관함에서 삭제" : "보관함에 추가", b, AsCard(page));
+            if (!ok) return;
+            on = !on;
+            Draw();
+            Anim.V(b.Content!).Scale = new Vector3(0.7f, 0.7f, 1);
+            Anim.Scale(b.Content!, 1f);
+        };
+        return b;
+    }
+
     private static FrameworkElement Circle(double size, bool primary, string icon, bool stroke, string tip, Action click)
     {
         var b = new IconButton(size);
@@ -339,6 +390,27 @@ public sealed class DetailView : ScrollPage
         var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
         pkg.SetText(url);
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+    }
+
+    /// <summary>구독 알약 — 구독 전엔 흰 바탕, 구독 중이면 반투명 칩 (YT Music 아티스트 머리)</summary>
+    private FrameworkElement SubscribeButton(string channelId, bool subscribed)
+    {
+        var holder = new Grid();
+        void Draw()
+        {
+            holder.Children.Clear();
+            holder.Children.Add(Pill(subscribed ? "구독중" : "구독", !subscribed, async () =>
+            {
+                if (!Auth.IsLoggedIn) { Toast.Show("로그인이 필요해요"); return; }
+                var ok = await InnerTube.Instance.Subscribe(channelId, !subscribed);
+                if (!ok) { Toast.Show("하지 못했어요"); return; }
+                subscribed = !subscribed;
+                Toast.Show(subscribed ? "구독했어요" : "구독을 취소했어요");
+                Draw();
+            }, c => Theme.Icon(subscribed ? Icons.LibrarySaved : Icons.Person, 20, c, stroke: true)));
+        }
+        Draw();
+        return holder;
     }
 
     /// <summary>알약 버튼 44px — 주 버튼은 흰 바탕 검은 글씨, 나머지는 반투명 칩</summary>

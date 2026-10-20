@@ -668,7 +668,36 @@ public sealed class InnerTube
             play, radio)
         {
             StraplineThumb = header.P("straplineThumbnail").BestThumb(),
+            Menu = ParseMenu(header.FindFirst("menuRenderer")),
+            LibraryToggle = ParseToggle(header.FindFirst("toggleButtonRenderer")),
+            ChannelId = header.FindFirst("subscribeButtonRenderer").P("channelId").Str(),
+            Subscribed = header.FindFirst("subscribeButtonRenderer").P("subscribed")?.GetValue<bool>() == true,
+            AudioPlaylistId = json.FindFirst("musicResponsiveHeaderRenderer").FindFirst("playlistId").Str()
+                              ?? (browseId.StartsWith("VL") ? browseId[2..] : null),
         };
+    }
+
+    /// <summary>머리의 '보관함에 저장' 같은 켜고 끄는 버튼 (toggleButtonRenderer)</summary>
+    private static YtMenuItem? ParseToggle(JsonNode? tg)
+    {
+        if (tg == null) return null;
+        var text = tg.P("defaultText").Text();
+        if (text.Length == 0) text = tg.P("accessibility", "label").Str() ?? tg.P("defaultTooltip").Str() ?? "보관함에 저장";
+        return new YtMenuItem(text, tg.P("defaultIcon", "iconType").Str(), tg.P("defaultServiceEndpoint")?.ToJsonString())
+        {
+            Toggle = true,
+            Toggled = tg.P("isToggled")?.GetValue<bool>() == true,
+            ToggledText = tg.P("toggledText").Text() is { Length: > 0 } tt ? tt : tg.P("toggledTooltip").Str() ?? "보관함에서 삭제",
+            ToggledIcon = tg.P("toggledIcon", "iconType").Str(),
+            ToggledEndpoint = tg.P("toggledServiceEndpoint")?.ToJsonString(),
+        };
+    }
+
+    /// <summary>아티스트 구독 · 구독 취소</summary>
+    public async Task<bool> Subscribe(string channelId, bool on, CancellationToken ct = default)
+    {
+        var json = await Post(on ? "subscription/subscribe" : "subscription/unsubscribe", new JsonObject { ["channelIds"] = new JsonArray(channelId) }, ct);
+        return json != null;
     }
 
     // ───────────────────────── 파싱 ─────────────────────────

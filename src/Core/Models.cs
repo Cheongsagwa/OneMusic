@@ -117,6 +117,15 @@ public sealed record PageData(
 {
     /// <summary>만든 사람(플레이리스트 주인 · 앨범 가수) 동그란 사진</summary>
     public string? StraplineThumb { get; init; }
+    /// <summary>머리 ⋮ 메뉴 (셔플 재생 · 믹스 시작 · 재생목록에 저장 · 공유 …)</summary>
+    public List<YtMenuItem>? Menu { get; init; }
+    /// <summary>'보관함에 저장' 켜고 끄기</summary>
+    public YtMenuItem? LibraryToggle { get; init; }
+    /// <summary>아티스트 구독</summary>
+    public string? ChannelId { get; init; }
+    public bool Subscribed { get; init; }
+    /// <summary>앨범 · 플레이리스트의 재생목록 ID (공유 · 재생목록에 저장)</summary>
+    public string? AudioPlaylistId { get; init; }
 }
 
 /// <summary>검색 결과 한 줄 (노래 · 동영상 · 앨범 · 아티스트 · 플레이리스트 …)</summary>
