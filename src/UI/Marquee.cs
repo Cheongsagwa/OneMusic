@@ -9,6 +9,7 @@ namespace OneMusic.UI;
 public sealed class Marquee : Grid
 {
     private readonly TextBlock _text;
+    private readonly Canvas _host = new();
     private readonly RectangleGeometry _clip = new();
     private string _key = "";
 
@@ -17,7 +18,11 @@ public sealed class Marquee : Grid
         _text = Theme.Text("", size, weight, color);
         _text.TextTrimming = TextTrimming.None;
         _text.HorizontalAlignment = HorizontalAlignment.Left;
-        Children.Add(_text);
+        // Grid 에 바로 넣으면 칸 폭으로 잘린 채 배치돼서 흘려도 뒷부분이 안 보인다 → Canvas 위에 제 길이 그대로
+        _text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        _host.Height = Math.Max(1, _text.DesiredSize.Height);
+        _host.Children.Add(_text);
+        Children.Add(_host);
         Clip = _clip;
         SizeChanged += (_, _) =>
         {
@@ -48,6 +53,7 @@ public sealed class Marquee : Grid
         // 글자의 실제 폭 (칸에 잘리기 전)
         _text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var need = _text.DesiredSize.Width;
+        _host.Height = Math.Max(1, _text.DesiredSize.Height);
         var avail = ActualWidth;
         var key = $"{_text.Text}|{need:0}|{avail:0}";
         if (key == _key) return;

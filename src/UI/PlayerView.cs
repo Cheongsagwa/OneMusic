@@ -136,7 +136,7 @@ public sealed class PlayerView : Grid
         _queueTab.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _queueTab.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var head = new Grid { Margin = new Thickness(8, 12, 8, 8) };
-        var headText = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        var headText = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 96, 0) };
         headText.Children.Add(Theme.Text("재생 중인 트랙 출처", 12, FontWeights.Bold, Color.FromArgb(178, 255, 255, 255)));
         headText.Children.Add(_source);
         head.Children.Add(headText);
@@ -238,8 +238,8 @@ public sealed class PlayerView : Grid
     {
         var t = _p.Current;
         // 뮤직비디오(동영상 썸네일)는 16:9, 노래는 정사각형에 가깝게 (pear 와 같은 670×648)
-        var wide = t?.Thumb?.Contains("ytimg.com") == true;
-        _artBox.Height = wide ? 377 : 648;
+        // 16:9 동영상 썸네일도 가운데를 잘라 늘 같은 크기로 (레이아웃이 흔들리지 않게)
+        _artBox.Height = 648;
         _artOld.Source = _artImg.Source;
         var bmp = Theme.Image(t?.Thumb, 670);
         Anim.V(_artImg).Opacity = 0;
