@@ -261,14 +261,6 @@ public sealed class MainWindow : Window
         _search.Resources["TextControlForegroundFocused"] = Theme.B(Colors.White);
         _search.Resources["TextControlPlaceholderForeground"] = Theme.B(Theme.Secondary);
         _search.Resources["TextControlPlaceholderForegroundFocused"] = Theme.B(Theme.Secondary);
-        // 추천 목록: 검색창 밑 8px 떨어진 둥근(24) 유리 카드, 테두리 없음 (pear 35 · 58)
-        _search.Resources["AutoSuggestBoxSuggestionsListBackground"] = Theme.Glass(0.86, Color.FromArgb(255, 46, 46, 48));
-        _search.Resources["AutoSuggestBoxSuggestionsListBorderBrush"] = new SolidColorBrush(Colors.Transparent);
-        _search.Resources["AutoSuggestListBorderThemeThickness"] = new Thickness(0);
-        _search.Resources["AutoSuggestListMargin"] = new Thickness(-40, 14, -8, 0);
-        _search.Resources["AutoSuggestListPadding"] = new Thickness(6);
-        _search.Resources["OverlayCornerRadius"] = new CornerRadius(24);
-        _search.Resources["ListViewItemCornerRadius"] = new CornerRadius(16);
         _search.TextChanged += OnSearchText;
         // 추천 줄은 글자가 아니라 화면 요소라서, 고를 때 입력칸 글자를 바꾸지 않는다
         _search.UpdateTextOnSelect = false;
@@ -328,7 +320,8 @@ public sealed class MainWindow : Window
     /// </summary>
     private Grid BuildGuide()
     {
-        var g = new Grid { Width = 240, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Background = new SolidColorBrush(Colors.Transparent) };
+        // pear: ytmusic-guide-renderer 도 유리 (--oneui-glass + blur)
+        var g = new Grid { Width = 240, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Background = Theme.Glass(0.42, Color.FromArgb(255, 36, 36, 40)), CornerRadius = new CornerRadius(0, 26, 26, 0) };
         var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Padding = new Thickness(8, 16, 8, Theme.BarHeight + Theme.FloatGap * 2) };
         var stack = new StackPanel { Spacing = 2 };
         var entries = new[] { ("홈", Icons.HomeOutline, Icons.HomeFilled), ("둘러보기", Icons.ExploreOutline, Icons.ExploreFilled), ("보관함", Icons.LibraryOutline, Icons.LibraryFilled) };
@@ -445,7 +438,6 @@ public sealed class MainWindow : Window
             Anim.Opacity(_guide, 0, Anim.Fast);
             Anim.Opacity(_rail, 1, Anim.Medium);
             _rail.IsHitTestVisible = true;
-            var gen = _guideOpen;
             DispatcherQueue.TryEnqueue(async () =>
             {
                 await Task.Delay(Anim.Medium);

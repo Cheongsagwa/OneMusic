@@ -27,21 +27,22 @@ public static class Theme
     public static SolidColorBrush B(byte a, byte r, byte g, byte b) => new(Color.FromArgb(a, r, g, b));
     public static Color WithAlpha(this Color c, double a) => Color.FromArgb((byte)Math.Clamp(a * 255, 0, 255), c.R, c.G, c.B);
 
-    /// <summary>앱 안의 유리(뒤 내용이 흐리게 비치는 표면)</summary>
-    public static Brush Glass(double tintOpacity = 0.55, Color? tint = null) => new AcrylicBrush
+    /// <summary>
+    /// 앱 안의 유리 — 뒤 내용을 크게 흐리고(블러 36 · 채도 1.4) 반투명 색을 덮는다.
+    /// tintOpacity 는 CSS rgb(.. / a) 의 a 와 같다 (pear --oneui-glass 0.6 · --oneui-glass-strong 0.86)
+    /// </summary>
+    public static Brush Glass(double tintOpacity = 0.55, Color? tint = null, float blur = 36) => new BlurBrush
     {
-        TintColor = tint ?? GlassTint,
-        TintOpacity = tintOpacity,
-        TintLuminosityOpacity = 0.6,
-        FallbackColor = (tint ?? GlassTint).WithAlpha(0.92),
+        Blur = blur,
+        Tint = (tint ?? GlassTint).WithAlpha(tintOpacity),
+        FallbackColor = (tint ?? GlassTint).WithAlpha(0.94),
     };
 
     /// <summary>흰빛 유리 (검색창 · 버튼 — pear button-glass: 흰 12% + 블러)</summary>
-    public static Brush GlassLight(double whiteOpacity) => new AcrylicBrush
+    public static Brush GlassLight(double whiteOpacity, float blur = 30) => new BlurBrush
     {
-        TintColor = Colors.White,
-        TintOpacity = whiteOpacity * 0.6,
-        TintLuminosityOpacity = whiteOpacity,
+        Blur = blur,
+        Tint = Colors.White.WithAlpha(whiteOpacity),
         FallbackColor = Colors.White.WithAlpha(whiteOpacity),
     };
 

@@ -24,7 +24,7 @@ public static class Tip
         {
             Padding = new Thickness(12, 7, 12, 7),
             CornerRadius = new CornerRadius(12),
-            Background = Theme.Glass(0.86, Color.FromArgb(255, 46, 46, 48)),
+            Background = Theme.Glass(0.78, Color.FromArgb(255, 46, 46, 48)),
             Child = _text,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,

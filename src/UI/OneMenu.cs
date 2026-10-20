@@ -22,7 +22,7 @@ public sealed class OneMenu
         {
             Width = width,
             CornerRadius = new CornerRadius(Theme.RadiusCard),
-            Background = Theme.Glass(0.55, Color.FromArgb(255, 40, 40, 44)),
+            Background = Theme.Glass(0.74, Color.FromArgb(255, 40, 40, 44), blur: 40),
             BorderBrush = Theme.B(Color.FromArgb(24, 255, 255, 255)),
             BorderThickness = new Thickness(1),
             Child = _items,

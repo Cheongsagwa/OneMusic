@@ -450,7 +450,7 @@ public static class Prompt
             CloseButtonText = "취소",
             DefaultButton = ContentDialogButton.Primary,
             CornerRadius = new CornerRadius(28),
-            Background = Theme.Glass(0.86, Color.FromArgb(255, 46, 46, 48)),
+            Background = Theme.Glass(0.78, Color.FromArgb(255, 46, 46, 48), blur: 40),
             RequestedTheme = ElementTheme.Dark,
         };
         return await dlg.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;

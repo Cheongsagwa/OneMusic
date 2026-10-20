@@ -24,7 +24,7 @@ public sealed class SearchDropdown
         {
             Width = 480,
             CornerRadius = new CornerRadius(24),
-            Background = Theme.Glass(0.86, Color.FromArgb(255, 46, 46, 48)),
+            Background = Theme.Glass(0.76, Color.FromArgb(255, 46, 46, 48), blur: 40),
             Child = _list,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
