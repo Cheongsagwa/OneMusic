@@ -138,6 +138,9 @@ public static class Icons
     public const string Download = "M12 4v11 M7.5 10.5 12 15l4.5-4.5 M5 19.5h14";
     public const string More = "M12 5.2a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z M12 10.7a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z M12 16.2a1.3 1.3 0 1 1 0 2.6a1.3 1.3 0 1 1 0-2.6z";
     public const string ThumbUp = "M7.5 10.5v9 M7.5 10.5 11 4.3c1.3 0 2.2 1.1 1.9 2.4l-.6 2.8h5.2c1.3 0 2.2 1.2 1.9 2.4l-1.4 5.8c-.2.9-1 1.5-1.9 1.5H7.5 M4 10.5h3.5v9H4z";
+    public const string ThumbDown = "M16.5 13.5v-9 M16.5 13.5 13 19.7c-1.3 0-2.2-1.1-1.9-2.4l.6-2.8H6.5c-1.3 0-2.2-1.2-1.9-2.4l1.4-5.8c.2-.9 1-1.5 1.9-1.5h8.6 M20 13.5h-3.5v-9H20z";
+    public const string MinusCircle = "M12 3.6a8.4 8.4 0 1 1 0 16.8a8.4 8.4 0 1 1 0-16.8z M8 12h8";
+    public const string Share = "M14 5l6 6-6 6 M20 11h-7.5c-4 0-7.5 3-8 8";
     public const string ChevronRight = "M9.4 6l6 6-6 6";
     public const string Link = "M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1 M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1";
     public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";

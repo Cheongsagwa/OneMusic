@@ -41,7 +41,7 @@ public sealed class TrackRow : Grid
         else
         {
             var art = new Border { CornerRadius = new CornerRadius(Theme.RadiusThumb), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
-            var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 44) };
+            var img = new Image { Width = 44, Height = 44, Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 78) };
             Anim.V(img).Opacity = 0;
             img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
             art.Child = img;
@@ -65,7 +65,7 @@ public sealed class TrackRow : Grid
         RightTapped += (_, e) =>
         {
             e.Handled = true;
-            TrackMenu.Show(this, Track, QueueIndex);
+            TrackMenu.Show(this, Track, QueueIndex, e.GetPosition(null));
         };
     }
 
@@ -175,7 +175,18 @@ public sealed class CardView : StackPanel
         Background = new SolidColorBrush(Colors.Transparent);
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
         var art = new Border { Width = w, Height = size, CornerRadius = new CornerRadius(round ? size / 2 : 18), Background = Theme.B(Color.FromArgb(20, 255, 255, 255)) };
-        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(c.Thumb, (int)w) };
+        // 16:9 를 정사각으로 자를 땐 가운데 기준 — Image 크기를 칸에 고정해야 UniformToFill 이 가운데를 남긴다
+        // (크기를 안 주면 넘친 그림이 왼쪽부터 놓여 오른쪽이 잘렸다). 자를 땐 높이에 맞게 더 크게 받아 흐리지 않게
+        var cropWide = c.Wide && square;
+        var img = new Image
+        {
+            Width = w,
+            Height = size,
+            Stretch = Stretch.UniformToFill,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Source = Theme.Image(c.Thumb, (int)(cropWide ? size * 16 / 9 : w)),
+        };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 360);
         art.Child = img;
@@ -281,38 +292,70 @@ public sealed class WrapPanel : Panel
 /// <summary>곡 우클릭 메뉴 (pear 의 ⋮ 메뉴에서 실제로 되는 것들)</summary>
 public static class TrackMenu
 {
-    public static void Show(FrameworkElement at, Track t, int? queueIndex = null)
+    /// <param name="pos">우클릭이면 누른 자리 (창 기준). 없으면 at 아래</param>
+    public static void Show(FrameworkElement at, Track t, int? queueIndex = null, Point? pos = null)
     {
         var p = PlayerService.Instance;
-        var f = new MenuFlyout();
-        void Item(string text, string icon, Action a)
-        {
-            // 아이콘은 선 그림이라 PathIcon(채움)으로는 못 그려서 글자만
-            var it = new MenuFlyoutItem { Text = text };
-            it.Click += (_, _) => a();
-            f.Items.Add(it);
-        }
-        Item("믹스 시작", Icons.Radio, () => _ = p.PlaySong(t));
-        Item("다음에 재생", Icons.PlayNextIcon, () => p.PlayNext(t));
-        Item("현재 재생목록에 추가", Icons.QueueAdd, () => p.AddToQueue(t));
-        if (queueIndex is { } qi && qi != p.Index)
-            Item("현재 재생목록에서 삭제", Icons.Close, () => p.RemoveFromQueue(qi));
-        if (t.AlbumId != null || t.ArtistId != null) f.Items.Add(new MenuFlyoutSeparator());
-        if (t.AlbumId != null) Item("앨범으로 이동", Icons.Album, () => App.MainWin?.OpenBrowse(t.AlbumId));
-        if (t.ArtistId != null) Item("아티스트 페이지로 이동", Icons.Person, () => App.MainWin?.OpenBrowse(t.ArtistId));
-        f.Items.Add(new MenuFlyoutSeparator());
-        Item("다운로드", "", () => DownloadAll(new[] { t }));
+        var m = new OneMenu();
+        // 맨 위: 좋아요 · 싫어요 한 줄 (pear ⋮ 메뉴)
+        m.Pair(("좋아요", Icons.ThumbUp, () => Rate(t, true)), ("싫어요", Icons.ThumbDown, () => Rate(t, false)));
+        m.Separator();
+        m.Item("다운로드", Icons.Download, () => DownloadAll(new[] { t }));
+        m.Item("믹스 시작", Icons.Radio, () => _ = p.PlaySong(t));
+        m.Item("다음에 재생", Icons.PlayNextIcon, () => p.PlayNext(t));
+        m.Item("현재 재생목록에 추가", Icons.QueueAdd, () => p.AddToQueue(t));
         var off = Offline.Instance;
-        if (off.Has(t.VideoId)) Item("오프라인 저장 삭제", "", () => { off.Remove(t.VideoId); Toast.Show("오프라인 저장에서 뺐어요"); });
-        else Item("오프라인 저장", "", () => SaveOffline(new[] { t }));
-        Item("공유 (링크 복사)", Icons.Link, () =>
+        if (off.Has(t.VideoId)) m.Item("오프라인 저장 삭제", Icons.Download, () => { off.Remove(t.VideoId); Toast.Show("오프라인 저장에서 뺐어요"); });
+        else m.Item("오프라인 저장", Icons.Download, () => SaveOffline(new[] { t }));
+        m.Item("재생목록에 저장", Icons.QueueAdd, () => SaveToPlaylist(at, t, pos), keepOpen: true);
+        if (queueIndex is { } qi && qi != p.Index)
+            m.Item("현재 재생목록에서 삭제", Icons.MinusCircle, () => p.RemoveFromQueue(qi));
+        if (t.AlbumId != null) m.Item("앨범으로 이동", Icons.Album, () => App.MainWin?.OpenBrowse(t.AlbumId));
+        if (t.ArtistId != null) m.Item("아티스트 페이지로 이동", Icons.Person, () => App.MainWin?.OpenBrowse(t.ArtistId));
+        m.Item("공유", Icons.Share, () =>
         {
             var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
             pkg.SetText($"https://music.youtube.com/watch?v={t.VideoId}");
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
             Toast.Show("링크를 복사했어요");
         });
-        f.ShowAt(at);
+        m.Show(at, pos);
+    }
+
+    private static async void Rate(Track t, bool like)
+    {
+        try
+        {
+            var ok = await InnerTube.Instance.Rate(t.VideoId, like);
+            Toast.Show(ok ? (like ? "좋아요 표시한 노래에 추가했어요" : "싫어요를 표시했어요") : "로그인이 필요해요");
+        }
+        catch (Exception e) { Log.Warn($"좋아요 실패: {e.Message}"); }
+    }
+
+    /// <summary>재생목록에 저장 — 같은 메뉴 모양으로 내 재생목록을 보여 주고 고르면 넣는다</summary>
+    private static async void SaveToPlaylist(FrameworkElement at, Track t, Point? pos)
+    {
+        try
+        {
+            var lists = await InnerTube.Instance.MyPlaylists(t.VideoId);
+            OneMenu.CloseAll();
+            if (lists.Count == 0) { Toast.Show("재생목록이 없어요"); return; }
+            var m = new OneMenu();
+            m.Header("재생목록에 저장");
+            foreach (var (title, id, contains) in lists.Take(14))
+                m.Item(contains ? $"{title}  ✓" : title, Icons.QueueAdd, async () =>
+                {
+                    var ok = !contains && await InnerTube.Instance.AddToPlaylist(id, t.VideoId);
+                    Toast.Show(contains ? $"이미 '{title}'에 있어요" : ok ? $"'{title}'에 저장했어요" : "저장하지 못했어요");
+                });
+            m.Show(at, pos);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"재생목록 목록 실패: {e.Message}");
+            OneMenu.CloseAll();
+            Toast.Show("재생목록을 불러오지 못했어요");
+        }
     }
 
     /// <summary>음악 폴더\OneMusic 에 m4a 로 (여러 곡이면 차례로)</summary>

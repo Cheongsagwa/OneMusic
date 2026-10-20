@@ -466,7 +466,7 @@ public sealed class ShelvesView : ScrollPage
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var art = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(Theme.RadiusThumb), Background = Theme.B(Theme.Chip), HorizontalAlignment = HorizontalAlignment.Left };
-        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 48) };
+        var img = new Image { Width = 48, Height = 48, Stretch = Stretch.UniformToFill, Source = Theme.Image(t.Thumb, 86) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
         art.Child = img;
@@ -478,7 +478,7 @@ public sealed class ShelvesView : ScrollPage
         g.Children.Add(text);
         Anim.Pressable(art);
         g.Tapped += (_, _) => _ = PlayerService.Instance.PlaySong(t);
-        g.RightTapped += (_, e) => { e.Handled = true; TrackMenu.Show(g, t); };
+        g.RightTapped += (_, e) => { e.Handled = true; TrackMenu.Show(g, t, null, e.GetPosition(null)); };
         return g;
     }
 }
@@ -617,7 +617,7 @@ public sealed class SearchView : ScrollPage
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var art = new Border { Width = 100, Height = 100, CornerRadius = new CornerRadius(it.Round ? 50 : 6), Background = Theme.B(Theme.Chip) };
-        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 100) };
+        var img = new Image { Width = 100, Height = 100, Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 178) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
         art.Child = img;
@@ -680,7 +680,7 @@ public sealed class SearchView : ScrollPage
         inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var art = new Border { Width = 56, Height = 56, CornerRadius = new CornerRadius(it.Round ? 28 : 6), Background = Theme.B(Theme.Chip), VerticalAlignment = VerticalAlignment.Center };
-        var img = new Image { Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 56) };
+        var img = new Image { Width = 56, Height = 56, Stretch = Stretch.UniformToFill, Source = Theme.Image(it.Thumb, 100) };
         Anim.V(img).Opacity = 0;
         img.ImageOpened += (_, _) => Anim.Opacity(img, 1, 300);
         art.Child = img;

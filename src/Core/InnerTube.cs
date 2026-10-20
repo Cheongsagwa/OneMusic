@@ -222,6 +222,36 @@ public sealed class InnerTube
         return new CommentPage(list, count is { Length: > 0 } ? count : null, list.Count > 0 ? next : null);
     }
 
+    // ───────────────────────── 좋아요 · 재생목록에 저장 ─────────────────────────
+
+    /// <summary>좋아요(true) · 싫어요(false) · 지우기(null)</summary>
+    public async Task<bool> Rate(string videoId, bool? like, CancellationToken ct = default)
+    {
+        var ep = like switch { true => "like/like", false => "like/dislike", _ => "like/removelike" };
+        var json = await Post(ep, new JsonObject { ["target"] = new JsonObject { ["videoId"] = videoId } }, ct);
+        return json != null;
+    }
+
+    /// <summary>'재생목록에 저장' 에 보일 내 재생목록들 (이름 · ID · 이미 들어 있는지)</summary>
+    public async Task<List<(string Title, string PlaylistId, bool Contains)>> MyPlaylists(string videoId, CancellationToken ct = default)
+    {
+        var json = await Post("playlist/get_add_to_playlist", new JsonObject { ["videoIds"] = new JsonArray(videoId) }, ct);
+        return json.FindAll("playlistAddToOptionRenderer").Select(r => (
+            r.P("title").Text(),
+            r.P("playlistId").Str() ?? "",
+            r.P("containsSelectedVideos").Str() == "ALL")).Where(x => x.Item2.Length > 0).ToList();
+    }
+
+    public async Task<bool> AddToPlaylist(string playlistId, string videoId, CancellationToken ct = default)
+    {
+        var json = await Post("browse/edit_playlist", new JsonObject
+        {
+            ["playlistId"] = playlistId,
+            ["actions"] = new JsonArray(new JsonObject { ["action"] = "ACTION_ADD_VIDEO", ["addedVideoId"] = videoId }),
+        }, ct);
+        return json.P("status").Str() == "STATUS_SUCCEEDED";
+    }
+
     /// <summary>로그인한 계정의 프로필 사진</summary>
     public async Task<string?> AccountPhoto(CancellationToken ct = default)
     {

@@ -112,7 +112,7 @@ public sealed class PlayerView : Grid
         artGrid.Children.Add(_artImg);
         _art.Child = artGrid;
         _artBox.Children.Add(_art);
-        var artHolder = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, VerticalAlignment = VerticalAlignment.Top, Child = _artBox };
+        var artHolder = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, VerticalAlignment = VerticalAlignment.Center, Child = _artBox };
         _art.Shadow = new ThemeShadow();
         _art.Translation = new Vector3(0, 0, 40);
         Grid.SetRow(artHolder, 1);
@@ -235,8 +235,9 @@ public sealed class PlayerView : Grid
     {
         var t = _p.Current;
         // 뮤직비디오(동영상 썸네일)는 16:9, 노래는 정사각형에 가깝게 (pear 와 같은 670×648)
-        // 16:9 동영상 썸네일도 가운데를 잘라 늘 같은 크기로 (레이아웃이 흔들리지 않게)
-        _artBox.Height = 648;
+        // 뮤직비디오 · 동영상(16:9 썸네일)은 자르지 않고 16:9 그대로 (pear 와 같게), 노래는 670×648. 둘 다 세로 가운데
+        var wide = t?.Thumb?.Contains("ytimg.com") == true;
+        _artBox.Height = wide ? 377 : 648;
         _artOld.Source = _artImg.Source;
         var bmp = Theme.Image(t?.Thumb, 670);
         Anim.V(_artImg).Opacity = 0;

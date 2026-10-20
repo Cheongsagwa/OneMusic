@@ -404,7 +404,7 @@ public sealed class MainWindow : Window
             Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center,
             CornerRadius = new CornerRadius(item.Round ? 20 : 6),
             Background = Theme.B(Theme.Chip),
-            Child = new Image { Source = Theme.Image(item.Thumb, 40), Stretch = Stretch.UniformToFill },
+            Child = new Image { Width = 40, Height = 40, Source = Theme.Image(item.Thumb, 72), Stretch = Stretch.UniformToFill },
         });
         var col = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
         col.Children.Add(Theme.Text(item.Title, 15, FontWeights.Bold, Theme.OnSurface));
