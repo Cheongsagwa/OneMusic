@@ -195,7 +195,7 @@ public sealed class PlayerService
     {
         Instance = this;
         _ui = ui;
-        _mp.Volume = Settings.Current.Volume;
+        _mp.Volume = Curve(Settings.Current.Volume);
         _mp.IsMuted = Settings.Current.Muted;
         _mp.PlaybackSession.PlaybackStateChanged += (_, _) => Ui(() => StateChanged?.Invoke());
         _mp.MediaEnded += (_, _) => Ui(OnEnded);
@@ -244,22 +244,41 @@ public sealed class PlayerService
         }
     }
 
+    /// <summary>슬라이더 값(0~1). 실제 소리 크기는 볼륨 곡선을 거친다</summary>
     public double Volume
     {
-        get => _mp.Volume;
+        get => Settings.Current.Volume;
         set
         {
-            _mp.Volume = Math.Clamp(value, 0, 1);
-            if (_mp.IsMuted && value > 0) _mp.IsMuted = false;
-            Settings.Current.Volume = _mp.Volume;
+            var v = Math.Clamp(value, 0, 1);
+            _mp.Volume = Curve(v);
+            if (_mp.IsMuted && v > 0) _mp.IsMuted = false;
+            Settings.Current.Volume = v;
             Settings.Current.Muted = _mp.IsMuted;
             VolumeChanged?.Invoke();
         }
     }
 
+    /// <summary>
+    /// 지수 볼륨 (pear exponential-volume) — 켜면 슬라이더 값의 세제곱. 귀는 소리 크기를 로그로 느껴서
+    /// 작은 소리 쪽을 더 세밀하게 고를 수 있다
+    /// </summary>
+    public bool ExponentialVolume
+    {
+        get => Settings.Current.ExponentialVolume;
+        set
+        {
+            Settings.Current.ExponentialVolume = value;
+            Settings.Current.Save();
+            _mp.Volume = Curve(Settings.Current.Volume);
+        }
+    }
+
+    private static double Curve(double v) => Settings.Current.ExponentialVolume ? v * v * v : v;
+
     public bool Muted
     {
-        get => _mp.IsMuted || _mp.Volume <= 0.001;
+        get => _mp.IsMuted || Settings.Current.Volume <= 0.001;
         set
         {
             _mp.IsMuted = value;

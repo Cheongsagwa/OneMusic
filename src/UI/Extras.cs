@@ -324,6 +324,12 @@ public static class AccountMenu
         m.Item("미니 플레이어", Icons.Pip, () => w.ToggleMini());
         m.Item($"재생 속도 · {SpeedMenu.Label(PlayerService.Instance.Speed)}", Icons.Speed, () => SpeedMenu.Show(at), keepOpen: true);
         m.Item($"출력 장치 · {OutputMenu.Label}", Icons.Speaker, () => OutputMenu.Show(at), keepOpen: true);
+        m.Item($"지수 볼륨 · {(PlayerService.Instance.ExponentialVolume ? "켜짐" : "꺼짐")}", Icons.Speaker, () =>
+        {
+            var p = PlayerService.Instance;
+            p.ExponentialVolume = !p.ExponentialVolume;
+            Toast.Show(p.ExponentialVolume ? "작은 소리를 더 세밀하게 조절해요" : "볼륨을 일정하게 조절해요");
+        });
         m.Item($"취침 타이머 · {SleepTimer.Label}", Icons.Moon, () => SleepTimer.ShowMenu(at), keepOpen: true);
         m.Item($"곡 바뀜 알림 · {(s.Notifications ? "켜짐" : "꺼짐")}", Icons.Bell, () =>
         {

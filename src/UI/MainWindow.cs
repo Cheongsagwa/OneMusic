@@ -67,6 +67,8 @@ public sealed class MainWindow : Window
         Build();
         LyricsState.Instance.Load(null);
         Player.TrackChanged += OnTrack;
+        // 작업 표시줄 미리보기의 이전 · 재생 · 다음 (pear taskbar-mediacontrol)
+        TaskbarButtons.Attach(this);
         if (Log.DevRoot != null) _dev = new DevBridge(this);
     }
 

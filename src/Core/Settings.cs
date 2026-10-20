@@ -21,6 +21,8 @@ public sealed class Settings
     public List<string> RecentSearches { get; set; } = new();
     /// <summary>소리를 낼 장치 (null = 윈도우 기본 장치)</summary>
     public string? AudioDevice { get; set; }
+    /// <summary>지수 볼륨 곡선 (pear exponential-volume)</summary>
+    public bool ExponentialVolume { get; set; }
     public int WindowWidth { get; set; } = 1440;
     public int WindowHeight { get; set; } = 920;
 
