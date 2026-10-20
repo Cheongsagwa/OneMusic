@@ -212,7 +212,7 @@ public sealed class DetailView : ScrollPage
         {
             var idx = i;
             var r = new TrackRow(page.Tracks[i], divider: i < page.Tracks.Count - 1);
-            r.Click += _ => _ = PlayerService.Instance.PlayList(page.Tracks, idx, page.Title);
+            r.Click += row => _ = PlayerService.Instance.PlayList(page.Tracks, idx, page.Title);
             _rows.Add(r);
             list.Children.Add(r);
         }
