@@ -17,6 +17,8 @@ public sealed class ArtView : Grid
     private CompositionGeometricClip? _clip;
     private CompositionRoundedRectangleGeometry? _clipGeo;
     private CompositionSurfaceBrush? _shown;
+    /// <summary>보이는 아트 · 받침 아트의 그림 (바뀌면 다 쓴 것은 바로 놓아 GPU 메모리를 돌려준다)</summary>
+    private LoadedImageSurface? _shownSurface, _underSurface;
     private string? _pendingUrl;
     private int _gen;
 
@@ -95,9 +97,18 @@ public sealed class ArtView : Grid
         brush.Stretch = CompositionStretch.UniformToFill;
         brush.HorizontalAlignmentRatio = 0.5f;
         brush.VerticalAlignmentRatio = 0.5f;
-        // 지금 보이던 아트는 받침으로
-        if (_shown != null) _under.Brush = _shown;
+        // 지금 보이던 아트는 받침으로, 그 전 받침은 버린다
+        var oldUnder = _under.Brush;
+        var oldUnderSurface = _underSurface;
+        if (_shown != null)
+        {
+            _under.Brush = _shown;
+            _underSurface = _shownSurface;
+            oldUnder?.Dispose();
+            oldUnderSurface?.Dispose();
+        }
         _shown = brush;
+        _shownSurface = surface;
 
         // 가운데에서 번지는 원형 마스크 (안쪽 45% 까지 불투명 → 가장자리 투명)
         var radial = c.CreateRadialGradientBrush();
@@ -109,7 +120,10 @@ public sealed class ArtView : Grid
         var mask = c.CreateMaskBrush();
         mask.Source = brush;
         mask.Mask = radial;
+        var oldMask = _top.Brush as CompositionMaskBrush;
         _top.Brush = mask;
+        oldMask?.Mask?.Dispose();
+        oldMask?.Dispose();
 
         var ease = c.CreateCubicBezierEasingFunction(new Vector2(0.33f, 0), new Vector2(0.2f, 1));
         var grow = c.CreateVector2KeyFrameAnimation();

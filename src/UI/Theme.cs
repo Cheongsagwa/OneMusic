@@ -23,8 +23,17 @@ public static class Theme
     public const double FloatGap = 12;
     public const double BarHeight = 96;
 
-    public static SolidColorBrush B(Color c) => new(c);
-    public static SolidColorBrush B(byte a, byte r, byte g, byte b) => new(Color.FromArgb(a, r, g, b));
+    /// <summary>같은 색 붓은 하나를 같이 쓴다 (붓 색을 바꾸는 곳이 없어서 안전 — 수천 줄 목록에서 붓 수천 개를 아낀다)</summary>
+    private static readonly Dictionary<Color, SolidColorBrush> Brushes = new();
+
+    public static SolidColorBrush B(Color c)
+    {
+        if (Brushes.TryGetValue(c, out var b)) return b;
+        if (Brushes.Count > 512) Brushes.Clear();
+        return Brushes[c] = new SolidColorBrush(c);
+    }
+
+    public static SolidColorBrush B(byte a, byte r, byte g, byte b) => B(Color.FromArgb(a, r, g, b));
     public static Color WithAlpha(this Color c, double a) => Color.FromArgb((byte)Math.Clamp(a * 255, 0, 255), c.R, c.G, c.B);
 
     /// <summary>

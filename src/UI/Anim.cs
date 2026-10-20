@@ -25,7 +25,30 @@ public static class Anim
 
     private static string F(float f) => f.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// 만든 애니메이션은 다시 쓴다 (키프레임 40개짜리 식을 마우스를 올릴 때마다 새로 풀지 않게).
+    /// 컴포지션 애니메이션은 틀이라서 여러 요소에 동시에 걸어도 된다
+    /// </summary>
+    private static readonly Dictionary<(float[], float, int, int), ScalarKeyFrameAnimation> ScalarCache = new();
+    private static readonly Dictionary<(float[], Vector3, int, int), Vector3KeyFrameAnimation> VecCache = new();
+
     private static ScalarKeyFrameAnimation Scalar(Compositor c, float to, float[] curve, int ms, int delayMs)
+    {
+        var key = (curve, to, ms, delayMs);
+        if (ScalarCache.TryGetValue(key, out var cached)) return cached;
+        if (ScalarCache.Count > 300) ScalarCache.Clear();
+        return ScalarCache[key] = MakeScalar(c, to, curve, ms, delayMs);
+    }
+
+    private static Vector3KeyFrameAnimation Vec(Compositor c, Vector3 to, float[] curve, int ms, int delayMs)
+    {
+        var key = (curve, to, ms, delayMs);
+        if (VecCache.TryGetValue(key, out var cached)) return cached;
+        if (VecCache.Count > 300) VecCache.Clear();
+        return VecCache[key] = MakeVec(c, to, curve, ms, delayMs);
+    }
+
+    private static ScalarKeyFrameAnimation MakeScalar(Compositor c, float to, float[] curve, int ms, int delayMs)
     {
         var a = c.CreateScalarKeyFrameAnimation();
         for (var i = 1; i < curve.Length; i++)
@@ -35,7 +58,7 @@ public static class Anim
         return a;
     }
 
-    private static Vector3KeyFrameAnimation Vec(Compositor c, Vector3 to, float[] curve, int ms, int delayMs)
+    private static Vector3KeyFrameAnimation MakeVec(Compositor c, Vector3 to, float[] curve, int ms, int delayMs)
     {
         var a = c.CreateVector3KeyFrameAnimation();
         var target = $"Vector3({F(to.X)}, {F(to.Y)}, {F(to.Z)})";
