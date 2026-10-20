@@ -1,0 +1,25 @@
+name: build
+
+# 클라우드 세션에서 코드를 고치고 올리면, 윈도우 빌드 서버에서 빌드해서 exe 를 만들어 준다
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build (Debug)
+        run: dotnet build src/OneMusic.csproj -c Debug -p:Platform=x64 -nologo
+      - name: Publish (Release)
+        run: dotnet publish src/OneMusic.csproj -c Release -p:Platform=x64 -o publish -nologo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OneMusic-win-x64
+          path: publish/
+          retention-days: 14

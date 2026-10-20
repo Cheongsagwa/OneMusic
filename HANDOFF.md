@@ -1,0 +1,45 @@
+# OneMusic — 인수인계 문서
+
+YouTube Music 네이티브 윈도우 클라이언트. 원래 쓰던 Electron 앱(pear-desktop + 직접 만든 One UI 테마 플러그인)의
+화면 · 동작을 그대로 옮기면서 메모리를 줄이는 게 목표. (측정: OneMusic 약 180MB / pear-desktop 약 2.6GB)
+
+## 기술
+- C# / .NET 8 / **WinUI 3** (Windows App SDK 1.6, 패키지 없는 실행 파일), Win2D(파도 재생 바 · 가사)
+- UI 는 거의 전부 C# 코드로 만든다 (XAML 은 `App.xaml` 하나). 스타일 토큰은 `src/UI/Theme.cs`
+- **윈도우에서만 빌드 · 실행된다.** 리눅스 클라우드 세션에선 코드 수정만 하고, 빌드는 GitHub Actions(`.github/workflows/build.yml`)가 한다
+  - Actions 탭 → 최신 실행 → `OneMusic-win-x64` 아티팩트에 exe 가 들어 있다
+
+## 구조
+- `src/Core/InnerTube.cs` — YouTube Music 내부 API(WEB_REMIX) 직접 호출: 검색 · 추천어 · 홈(칩 · 셸프) · 다음 트랙(라디오) · 앨범/플레이리스트 · 관련 항목
+  - 다음 트랙 목록의 한 칸에 음원(ATV)과 뮤비(OMV)가 같이 오므로 **음원만 고른다** (`GetQueue`)
+- `src/Core/Auth.cs` + `src/UI/LoginWindow.cs` — **한국은 로그인 없이는 YT Music 응답이 안 온다**(프리미엄 전용 지역).
+  WebView2 로그인 창에서 사용자가 직접 로그인 → youtube.com 쿠키만 받아 DPAPI(윈도우 사용자 계정)로 암호화 저장 → 요청마다 SAPISIDHASH 헤더
+- `src/Core/StreamResolver.cs` — 스트림 주소는 **yt-dlp**(처음 필요할 때 %LocalAppData%\OneMusic 에 자동 다운로드, `www.youtube.com/watch` 주소로 호출).
+  오디오를 **통째로 메모리에 받아서** 재생기에 넘긴다(4MB ≈ 0.1초). 다음 곡은 미리 받아 둔다.
+  - YoutubeExplode 는 주소는 주지만 재생이 바로 끊겨서 뺐다
+- `src/Core/Mp4Fix.cs` — 일부 곡의 MP4 '편집 목록(edts)' 때문에 Windows 재생기가 열자마자 끝나는 문제 → 상자 이름을 `free` 로 바꿔 무시하게
+- `src/Core/PlayerService.cs` — Windows `MediaPlayer` (미디어 키 · 시스템 미디어 컨트롤 자동). 큐 · 반복 · 셔플(한 번 섞기) · 자동재생
+- `src/Core/LyricsService.cs` — LRCLib (`get-cached` → `search`). 요청 제한에 걸린 적이 있어 재시도는 1번만
+- `src/UI/MainWindow.cs` — pear 와 같은 배치: 32px 창 끌기 / 90px 상단 바(≡ · 로고 · 검색 480×40 at x=172) / 72px 레일 / 화면 / 떠 있는 재생 바. 앨범 색 번짐 배경
+- `src/UI/Views.cs` — 셸프 화면(홈 · 둘러보기 · 보관함), 검색 결과
+- `src/UI/PlayerView.cs` — 재생 화면: 노래/동영상 전환 + 앨범아트(670×648) / 450px 유리 패널 [다음 트랙 | 가사 | 댓글 | 관련 항목]
+- `src/UI/FloatingBar.cs` · `WaveSeekBar.cs` · `Marquee.cs` · `LyricsView.cs` · `Rows.cs` · `Controls.cs` · `Anim.cs`
+
+## 개발용 통로 (PC 에서 작업할 때만, Debug 빌드에서만 켜짐)
+- `dev-watch.bat` 을 켜 두면 `.dev\cmd.txt` 에 `build` / `run` / `stop` / `mem` / `publish` 를 적을 때 실행하고 `.dev\out.txt` 에 결과를 남긴다
+- 앱(Debug)은 `.dev\app-cmd.txt` 의 명령을 받는다: `shot`(화면 → `.dev\shot.png`) · `state` · `mem` · `nav:home|player|lyrics|close` · `search:검색어` · `play:first|곡ID` · `next` · `toggle` · `seek:초` · `login` · `auth` · `ytdlp:곡ID|클라이언트` · `dump:곡ID`
+- 앱 로그: `.dev\app.log` (배포판은 `%LocalAppData%\OneMusic\log.txt`)
+
+## 사용자 취향 (중요)
+- 한국어 반말로 친구처럼 대화
+- 디자인 기준은 **삼성 One UI** + 사용자가 만든 버스 앱(Compose) · pear-desktop One UI 테마. 다크 모드만
+- 유리(블러) 표면, 앨범 색 배경, 중요한 곳 Bold, iOS 스타일 스프링 애니메이션, 네이티브 느낌(스크롤바 없음 · 글자 선택 없음)
+- 파도 재생 바: 직선은 그대로, 재생한 쪽 위로 뾰족한 /\ 언덕이 제각각 진하기 · 속도로 흐르고, 멈추면 그 자리에서 부드럽게 가라앉음
+- 아이콘: 꺼짐/음소거는 회색, 켜짐은 흰색. 볼륨 슬라이더는 스피커 아이콘에 올릴 때만 펼쳐짐
+
+## 남은 일
+- 가사: 일부 곡이 영어 가사로 나옴(급하지 않음). YT Music 자체 가사(관련 탭의 lyrics browseId)를 대안으로 검토
+- 동영상 재생(노래/동영상 전환), 재생목록 저장, 댓글 탭은 아직 껍데기
+- 아이콘 모양이 이어지듯 변하는 애니메이션(pear 의 재생↔일시정지 막대 합쳐짐 등)은 지금은 돌며 바뀌기 · 튕기기 정도로 단순화
+- 흘리는 글자(Marquee) 양 끝 흐림 마스크 없음
+- 앨범 · 아티스트 상세 화면 없음 (지금은 카드 누르면 바로 재생)

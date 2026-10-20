@@ -1,0 +1,330 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace OneMusic.Core;
+
+/// <summary>
+/// YouTube Music 웹이 쓰는 내부 API(youtubei, 클라이언트 이름 WEB_REMIX) 를 직접 부른다.
+/// 로그인 없이: 검색 · 검색어 추천 · 홈 · 다음 트랙(라디오) · 앨범/플레이리스트 곡 목록.
+/// </summary>
+public sealed class InnerTube
+{
+    private const string Base = "https://music.youtube.com/youtubei/v1/";
+    private const string ClientVersion = "1.20250929.03.00";
+    private const string UserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+    public static InnerTube Instance { get; } = new();
+
+    private HttpClient _http = Create();
+    private CookieContainer? _jar;
+
+    private static HttpClient Create() => new(new SocketsHttpHandler
+    {
+        AutomaticDecompression = DecompressionMethods.All,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        CookieContainer = Auth.Cookies,
+        UseCookies = true,
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(20),
+    };
+
+    /// <summary>로그인 상태가 바뀌면(쿠키 통째로 교체) 새 쿠키로 다시 만든다</summary>
+    private HttpClient Http
+    {
+        get
+        {
+            if (!ReferenceEquals(_jar, Auth.Cookies))
+            {
+                _jar = Auth.Cookies;
+                _http = Create();
+                _visitorData = null;
+            }
+            return _http;
+        }
+    }
+
+    private string? _visitorData;
+
+    private async Task<JsonNode?> Post(string endpoint, JsonObject body, CancellationToken ct = default)
+    {
+        var client = new JsonObject
+        {
+            ["clientName"] = "WEB_REMIX",
+            ["clientVersion"] = ClientVersion,
+            ["hl"] = "ko",
+            ["gl"] = "KR",
+        };
+        if (_visitorData != null) client["visitorData"] = _visitorData;
+        body["context"] = new JsonObject { ["client"] = client, ["user"] = new JsonObject() };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}{endpoint}?prettyPrint=false")
+        {
+            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        req.Headers.UserAgent.ParseAdd(UserAgent);
+        req.Headers.TryAddWithoutValidation("Origin", "https://music.youtube.com");
+        req.Headers.Referrer = new Uri("https://music.youtube.com/");
+        req.Headers.TryAddWithoutValidation("X-Youtube-Client-Name", "67");
+        req.Headers.TryAddWithoutValidation("X-Youtube-Client-Version", ClientVersion);
+        req.Headers.AcceptLanguage.Add(new StringWithQualityHeaderValue("ko-KR"));
+        if (_visitorData != null) req.Headers.TryAddWithoutValidation("X-Goog-Visitor-Id", _visitorData);
+        var auth = Auth.AuthorizationHeader();
+        if (auth != null)
+        {
+            req.Headers.TryAddWithoutValidation("Authorization", auth);
+            req.Headers.TryAddWithoutValidation("X-Origin", "https://music.youtube.com");
+            req.Headers.TryAddWithoutValidation("X-Goog-AuthUser", "0");
+        }
+
+        using var res = await Http.SendAsync(req, ct);
+        var text = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode)
+        {
+            Log.Warn($"InnerTube {endpoint} HTTP {(int)res.StatusCode}: {text[..Math.Min(300, text.Length)]}");
+            return null;
+        }
+        if (Log.DevRoot != null)
+        {
+            // 개발 중엔 마지막 응답을 남겨 두고 구조를 확인한다
+            try { File.WriteAllText(IOPath.Combine(Log.DevRoot, ".dev", $"last-{endpoint.Replace('/', '_')}.json"), text); } catch { }
+        }
+        var json = JsonNode.Parse(text);
+        _visitorData ??= json.P("responseContext", "visitorData").Str();
+        return json;
+    }
+
+    // ───────────────────────── 검색 ─────────────────────────
+
+    /// <summary>노래만 검색 (YT Music 검색의 '노래' 필터)</summary>
+    public async Task<List<Track>> SearchSongs(string query, CancellationToken ct = default)
+    {
+        var json = await Post("search", new JsonObject
+        {
+            ["query"] = query,
+            ["params"] = "EgWKAQIIAWoMEA4QChADEAQQCRAF",
+        }, ct);
+        return json.FindAll("musicResponsiveListItemRenderer").Select(ParseResponsive).OfType<Track>()
+            .DistinctBy(t => t.VideoId).ToList();
+    }
+
+    public async Task<List<string>> Suggestions(string input, CancellationToken ct = default)
+    {
+        var json = await Post("music/get_search_suggestions", new JsonObject { ["input"] = input }, ct);
+        return json.FindAll("searchSuggestionRenderer")
+            .Select(s => s.P("suggestion").Text())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct()
+            .Take(8)
+            .ToList();
+    }
+
+    // ───────────────────────── 홈 ─────────────────────────
+
+    public async Task<HomeData> Home(string? browseId = null, string? @params = null, CancellationToken ct = default)
+    {
+        var body = new JsonObject { ["browseId"] = browseId ?? "FEmusic_home" };
+        if (@params != null) body["params"] = @params;
+        var json = await Post("browse", body, ct);
+        var chips = json.FindAll("chipCloudChipRenderer").Select(c => new Chip(
+            c.P("text").Text(),
+            c.P("navigationEndpoint", "browseEndpoint", "browseId").Str(),
+            c.P("navigationEndpoint", "browseEndpoint", "params").Str(),
+            c.P("isSelected")?.GetValue<bool>() == true)).Where(c => c.Text.Length > 0).ToList();
+        return new HomeData(chips, ParseShelves(json));
+    }
+
+    /// <summary>화면(홈 · 둘러보기 · 보관함 · 관련 항목) 응답에서 셸프들을 뽑는다</summary>
+    public async Task<List<Shelf>> BrowseShelves(string browseId, CancellationToken ct = default)
+    {
+        var json = await Post("browse", new JsonObject { ["browseId"] = browseId }, ct);
+        return ParseShelves(json);
+    }
+
+    private static List<Shelf> ParseShelves(JsonNode? json)
+    {
+        var shelves = new List<Shelf>();
+        foreach (var shelf in json.FindAll("musicCarouselShelfRenderer"))
+        {
+            var header = shelf.P("header", "musicCarouselShelfBasicHeaderRenderer");
+            var title = header.P("title").Text();
+            if (string.IsNullOrWhiteSpace(title)) continue;
+            var (cards, tracks) = ParseItems(shelf.P("contents") as JsonArray);
+            if (cards.Count > 0)
+                shelves.Add(new Shelf(title, cards, tracks.Count > 0 ? tracks : null)
+                {
+                    Strapline = header.P("strapline").Text() is { Length: > 0 } st ? st : null,
+                    Avatar = header.P("thumbnail").BestThumb(),
+                });
+        }
+        // 보관함처럼 격자로 오는 화면
+        foreach (var grid in json.FindAll("gridRenderer"))
+        {
+            var title = grid.P("header", "gridHeaderRenderer", "title").Text();
+            var (cards, tracks) = ParseItems(grid.P("items") as JsonArray);
+            if (cards.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "보관함", cards, tracks.Count > 0 ? tracks : null));
+        }
+        foreach (var ms in json.FindAll("musicShelfRenderer"))
+        {
+            var title = ms.P("title").Text();
+            var (cards, tracks) = ParseItems(ms.P("contents") as JsonArray);
+            if (tracks.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "노래", cards, tracks));
+        }
+        return shelves;
+    }
+
+    private static (List<Card>, List<Track>) ParseItems(JsonArray? items)
+    {
+        var cards = new List<Card>();
+        var tracks = new List<Track>();
+        if (items == null) return (cards, tracks);
+        foreach (var item in items)
+        {
+            if (item.P("musicTwoRowItemRenderer") is { } two)
+            {
+                var c = ParseTwoRow(two);
+                if (c != null) cards.Add(c);
+            }
+            else if (item.P("musicResponsiveListItemRenderer") is { } resp && ParseResponsive(resp) is { } t)
+            {
+                tracks.Add(t);
+                cards.Add(new Card(t.Title, t.Artist, t.Thumb, false, t.VideoId, null, null));
+            }
+        }
+        return (cards, tracks);
+    }
+
+    // ───────────────────────── 재생 목록 ─────────────────────────
+
+    /// <summary>
+    /// 다음 트랙 목록. videoId 만 주면 그 곡으로 시작하는 라디오(믹스),
+    /// playlistId 를 주면 그 플레이리스트 · 앨범.
+    /// </summary>
+    public async Task<List<Track>> Queue(string? videoId, string? playlistId, CancellationToken ct = default) =>
+        (await GetQueue(videoId, playlistId, ct)).Tracks;
+
+    public async Task<QueueData> GetQueue(string? videoId, string? playlistId, CancellationToken ct = default)
+    {
+        var body = new JsonObject
+        {
+            ["isAudioOnly"] = true,
+            ["enablePersistentPlaylistPanel"] = true,
+            ["tunerSettingValue"] = "AUTOMIX_SETTING_NORMAL",
+        };
+        if (videoId != null) body["videoId"] = videoId;
+        body["playlistId"] = playlistId ?? (videoId != null ? "RDAMVM" + videoId : null);
+        var json = await Post("next", body, ct);
+        var list = new List<Track>();
+        var panel = json.FindFirst("playlistPanelRenderer");
+        var title = panel.P("title").Text();
+        string? related = null;
+        foreach (var tab in json.FindAll("tabRenderer"))
+            if (tab.P("endpoint", "browseEndpoint", "browseEndpointContextSupportedConfigs", "browseEndpointContextMusicConfig", "pageType").Str() == "MUSIC_PAGE_TYPE_TRACK_RELATED")
+                related = tab.P("endpoint", "browseEndpoint", "browseId").Str();
+        if (panel.P("contents") is not JsonArray items) return new QueueData(list, title, related);
+        foreach (var item in items)
+        {
+            // 한 줄에 '음원(ATV)'과 '뮤직비디오(OMV)'가 함께 들어 있는 경우가 많다 → 음원만 고른다
+            JsonNode? chosen = item.P("playlistPanelVideoRenderer");
+            if (item.P("playlistPanelVideoWrapperRenderer") is { } wrap)
+            {
+                var versions = new List<JsonNode?> { wrap.P("primaryRenderer", "playlistPanelVideoRenderer") };
+                if (wrap.P("counterpart") is JsonArray cps)
+                    versions.AddRange(cps.Select(c => c.P("counterpartRenderer", "playlistPanelVideoRenderer")));
+                chosen = versions.FirstOrDefault(v => VideoType(v) == "MUSIC_VIDEO_TYPE_ATV") ?? versions[0];
+            }
+            if (chosen != null && ParsePanel(chosen) is { } t) list.Add(t);
+        }
+        return new QueueData(list.DistinctBy(t => t.VideoId).ToList(), title.Length > 0 ? title : null, related);
+    }
+
+    /// <summary>앨범 · 플레이리스트 · 아티스트 페이지의 곡들</summary>
+    public async Task<List<Track>> BrowseTracks(string browseId, CancellationToken ct = default)
+    {
+        var json = await Post("browse", new JsonObject { ["browseId"] = browseId }, ct);
+        var albumThumb = json.P("header").BestThumb() ?? json.P("contents").FindFirst("musicResponsiveHeaderRenderer").BestThumb();
+        var list = json.FindAll("musicResponsiveListItemRenderer").Select(ParseResponsive).OfType<Track>()
+            .DistinctBy(t => t.VideoId).ToList();
+        // 앨범 수록곡 줄에는 썸네일이 없어서 앨범 표지를 넣어 준다
+        if (albumThumb != null)
+            list = list.Select(t => t.Thumb == null ? t with { Thumb = albumThumb } : t).ToList();
+        return list;
+    }
+
+    // ───────────────────────── 파싱 ─────────────────────────
+
+    private static readonly Regex TimeRx = new(@"^\d{1,2}(:\d{2}){1,2}$", RegexOptions.Compiled);
+    private static readonly string[] TypeLabels = ["노래", "동영상", "Song", "Video", "에피소드", "Episode"];
+
+    private static Track? ParseResponsive(JsonNode item)
+    {
+        var videoId = item.P("playlistItemData", "videoId").Str()
+                      ?? item.P("overlay").FindFirst("videoId").Str()
+                      ?? item.P("flexColumns", 0).FindFirst("videoId").Str();
+        if (videoId == null) return null;
+        var cols = item.P("flexColumns") as JsonArray;
+        var title = cols.P(0, "musicResponsiveListItemFlexColumnRenderer", "text").Text();
+        if (string.IsNullOrWhiteSpace(title)) return null;
+
+        var segs = new List<string>();
+        if (cols != null)
+            for (var i = 1; i < cols.Count; i++)
+                segs.AddRange(cols.P(i, "musicResponsiveListItemFlexColumnRenderer", "text").Text()
+                    .Split(" • ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        if (segs.Count > 0 && TypeLabels.Contains(segs[0])) segs.RemoveAt(0);
+
+        var duration = 0;
+        var fixedText = item.P("fixedColumns", 0, "musicResponsiveListItemFixedColumnRenderer", "text").Text();
+        if (TimeRx.IsMatch(fixedText)) duration = Fmt.ParseTime(fixedText);
+        var timeSeg = segs.LastOrDefault(s => TimeRx.IsMatch(s));
+        if (timeSeg != null)
+        {
+            if (duration == 0) duration = Fmt.ParseTime(timeSeg);
+            segs.Remove(timeSeg);
+        }
+        // 조회수 같은 꼬리 정보 빼기
+        segs.RemoveAll(s => s.Contains("회") && s.Any(char.IsDigit) || s.EndsWith("views"));
+
+        var artist = segs.Count > 0 ? segs[0] : "";
+        var album = segs.Count > 1 ? segs[1] : null;
+        var thumb = item.P("thumbnail").BestThumb();
+        return new Track(videoId, title, artist, album, thumb, duration);
+    }
+
+    private static string? VideoType(JsonNode? r) =>
+        r.P("navigationEndpoint", "watchEndpoint", "watchEndpointMusicSupportedConfigs", "watchEndpointMusicConfig", "musicVideoType").Str();
+
+    private static Track? ParsePanel(JsonNode r)
+    {
+        var videoId = r.P("videoId").Str();
+        if (videoId == null) return null;
+        var title = r.P("title").Text();
+        var byline = (r.P("longBylineText") ?? r.P("shortBylineText")).Text();
+        var segs = byline.Split(" • ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var artist = segs.Length > 0 ? segs[0] : "";
+        var album = segs.Length > 1 && !Regex.IsMatch(segs[1], @"^\d{4}$") ? segs[1] : null;
+        var duration = Fmt.ParseTime(r.P("lengthText").Text());
+        return new Track(videoId, title, artist, album, r.P("thumbnail").BestThumb(), duration);
+    }
+
+    private static Card? ParseTwoRow(JsonNode two)
+    {
+        var title = two.P("title").Text();
+        if (string.IsNullOrWhiteSpace(title)) return null;
+        var subtitle = two.P("subtitle").Text();
+        foreach (var label in TypeLabels)
+            if (subtitle.StartsWith(label + " • ")) subtitle = subtitle[(label.Length + 3)..];
+        var thumbs = two.P("thumbnailRenderer").FindFirst("thumbnails") as JsonArray;
+        var best = thumbs?.LastOrDefault();
+        var w = (int?)best?["width"]?.GetValue<double>() ?? 1;
+        var h = (int?)best?["height"]?.GetValue<double>() ?? 1;
+        var nav = two.P("navigationEndpoint");
+        var videoId = nav.P("watchEndpoint", "videoId").Str();
+        var playlistId = nav.P("watchEndpoint", "playlistId").Str() ?? nav.P("watchPlaylistEndpoint", "playlistId").Str();
+        var browseId = nav.P("browseEndpoint", "browseId").Str();
+        return new Card(title, subtitle, best.P("url").Str(), w > h * 1.2, videoId, playlistId, browseId);
+    }
+}
