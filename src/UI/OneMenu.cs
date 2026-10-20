@@ -1,5 +1,4 @@
 using Microsoft.UI.Input;
-using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace OneMusic.UI;
 
@@ -10,9 +9,11 @@ namespace OneMusic.UI;
 public sealed class OneMenu
 {
     private static readonly List<OneMenu> Open = new();
+    /// <summary>메뉴를 띄우는 맨 위 층 (Popup 대신 — 재생 바에서 Popup · MenuFlyout 이 안 뜨던 문제)</summary>
+    private static Grid? _layer;
+    private Grid? _dismiss;
     private readonly StackPanel _items = new() { Padding = new Thickness(8) };
     private readonly Border _box;
-    private Popup? _popup;
     private bool _closing;
 
     public OneMenu()
@@ -28,6 +29,14 @@ public sealed class OneMenu
             Shadow = new ThemeShadow(),
             Translation = new Vector3(0, 0, 32),
         };
+    }
+
+    public static bool IsOpen => Open.Count > 0;
+
+    public static void Attach(Grid root)
+    {
+        _layer = new Grid { Visibility = Visibility.Collapsed };
+        root.Children.Add(_layer);
     }
 
     public static void CloseAll()
@@ -89,14 +98,23 @@ public sealed class OneMenu
     /// <summary>at 옆에 연다. pos(창 기준 좌표)가 있으면 그 자리에</summary>
     public void Show(FrameworkElement at, Point? pos = null)
     {
+        try { ShowCore(at, pos); }
+        catch (Exception e)
+        {
+            Core.Log.Error("메뉴 열기 실패", e);
+            Toast.Show("메뉴를 열지 못했어요: " + e.Message);
+        }
+    }
+
+    private void ShowCore(FrameworkElement at, Point? pos)
+    {
         CloseAll();
-        var root = at.XamlRoot;
-        if (root == null) return;
+        var layer = _layer ?? throw new InvalidOperationException("메뉴 층이 없음");
         _box.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var w = _box.DesiredSize.Width;
         var h = _box.DesiredSize.Height;
-        var winW = root.Size.Width;
-        var winH = root.Size.Height;
+        var winW = layer.ActualWidth;
+        var winH = layer.ActualHeight;
         double x, y;
         if (pos is { } p)
         {
@@ -105,7 +123,7 @@ public sealed class OneMenu
         }
         else
         {
-            var r = at.TransformToVisual(null).TransformBounds(new Rect(0, 0, at.ActualWidth, at.ActualHeight));
+            var r = at.TransformToVisual(layer).TransformBounds(new Rect(0, 0, at.ActualWidth, at.ActualHeight));
             x = r.X;
             y = r.Bottom + 6;
             // 아래 공간이 없으면 위로 (재생 바의 ⋮)
@@ -113,26 +131,25 @@ public sealed class OneMenu
         }
         x = Math.Clamp(x, 8, Math.Max(8, winW - w - 8));
         y = Math.Clamp(y, 8, Math.Max(8, winH - h - 8));
-        _popup = new Popup
-        {
-            XamlRoot = root,
-            Child = _box,
-            IsLightDismissEnabled = true,
-            HorizontalOffset = x,
-            VerticalOffset = y,
-            ShouldConstrainToRootBounds = true,
-        };
-        _popup.Closed += (_, _) => Open.Remove(this);
+        // 바깥을 누르면 닫히는 투명 판
+        _dismiss = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
+        _dismiss.PointerPressed += (_, e) => { e.Handled = true; Close(); };
+        _box.HorizontalAlignment = HorizontalAlignment.Left;
+        _box.VerticalAlignment = VerticalAlignment.Top;
+        _box.Margin = new Thickness(x, y, 0, 0);
+        layer.Children.Add(_dismiss);
+        layer.Children.Add(_box);
+        layer.Visibility = Visibility.Visible;
         Open.Add(this);
-        _popup.IsOpen = true;
         Anim.Pop(_box);
     }
 
     public async void Close()
     {
-        if (_popup == null || _closing) return;
+        if (_layer == null || _closing || !Open.Contains(this)) return;
         _closing = true;
         Open.Remove(this);
+        if (_dismiss != null) _layer.Children.Remove(_dismiss);
         // oneui-pop-out: 200ms 동안 0.94 로 줄며 사라짐
         var v = Anim.V(_box);
         v.CenterPoint = new Vector3((float)_box.ActualWidth / 2, (float)_box.ActualHeight / 2, 0);
@@ -144,6 +161,7 @@ public sealed class OneMenu
         v.StartAnimation("Scale", a);
         _box.IsHitTestVisible = false;
         await Task.Delay(200);
-        _popup.IsOpen = false;
+        _layer.Children.Remove(_box);
+        if (Open.Count == 0) _layer.Visibility = Visibility.Collapsed;
     }
 }

@@ -204,6 +204,11 @@ public sealed class CardView : StackPanel
         img.SizeChanged += (_, _) => Anim.V(img).CenterPoint = new Vector3((float)img.ActualWidth / 2, (float)img.ActualHeight / 2, 0);
         Anim.Pressable(art);
         Tapped += (_, _) => Click?.Invoke(c);
+        RightTapped += (_, e) =>
+        {
+            e.Handled = true;
+            TrackMenu.ShowCard(this, c, e.GetPosition(null));
+        };
     }
 }
 
@@ -319,6 +324,32 @@ public static class TrackMenu
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
             Toast.Show("링크를 복사했어요");
         });
+        m.Show(at, pos);
+    }
+
+    /// <summary>카드 우클릭 — 곡이면 곡 메뉴, 앨범 · 플레이리스트 · 아티스트면 재생 · 열기 · 공유</summary>
+    public static void ShowCard(FrameworkElement at, Card c, Point pos)
+    {
+        if (c.VideoId != null && c.PlaylistId == null)
+        {
+            var artist = InnerTube.StripType(c.Subtitle).Split(" • ")[0];
+            Show(at, new Track(c.VideoId, c.Title, artist, null, c.Thumb, 0), null, pos);
+            return;
+        }
+        var m = new OneMenu();
+        m.Item("재생", Icons.Play, () => Play.Card(c with { PageType = "play" }));
+        if (c.BrowseId != null) m.Item("열기", Icons.Album, () => App.MainWin?.OpenBrowse(c.BrowseId));
+        var link = c.PlaylistId != null ? $"https://music.youtube.com/playlist?list={c.PlaylistId}"
+            : c.BrowseId?.StartsWith("VL") == true ? $"https://music.youtube.com/playlist?list={c.BrowseId[2..]}"
+            : c.BrowseId != null ? $"https://music.youtube.com/browse/{c.BrowseId}" : null;
+        if (link != null)
+            m.Item("공유", Icons.Share, () =>
+            {
+                var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                pkg.SetText(link);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+                Toast.Show("링크를 복사했어요");
+            });
         m.Show(at, pos);
     }
 

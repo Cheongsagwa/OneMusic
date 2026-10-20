@@ -148,12 +148,14 @@ public sealed class MainWindow : Window
         Bar.OpenPlayer += TogglePlayer;
         Root.Children.Add(Bar);
         Toast.Attach(Root);
+        OneMenu.Attach(Root);
 
         Content = Root;
         Root.Loaded += (_, _) => Home.LoadOnce();
         Root.KeyDown += (_, e) =>
         {
-            if (e.Key == Windows.System.VirtualKey.Escape && PlayerPage.IsOpen) ClosePlayer();
+            if (e.Key == Windows.System.VirtualKey.Escape && OneMenu.IsOpen) OneMenu.CloseAll();
+            else if (e.Key == Windows.System.VirtualKey.Escape && PlayerPage.IsOpen) ClosePlayer();
             else if (e.Key == Windows.System.VirtualKey.Escape && e.OriginalSource is not TextBox) Back();
         };
         // 마우스 뒤로 버튼

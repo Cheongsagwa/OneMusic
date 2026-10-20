@@ -695,6 +695,12 @@ public sealed class SearchView : ScrollPage
         g.PointerExited += (_, _) => Anim.Opacity(hover, 0, 240);
         Anim.Pressable(art);
         g.Tapped += (_, _) => Open(it, siblings);
+        g.RightTapped += (_, e) =>
+        {
+            e.Handled = true;
+            if (it.Track is { } t) TrackMenu.Show(g, t, null, e.GetPosition(null));
+            else if (it.BrowseId != null) TrackMenu.ShowCard(g, new Card(it.Title, it.Subtitle, it.Thumb, false, null, null, it.BrowseId, it.PageType), e.GetPosition(null));
+        };
         return g;
     }
 }
