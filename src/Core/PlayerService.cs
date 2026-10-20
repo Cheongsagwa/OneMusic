@@ -371,6 +371,22 @@ public sealed class PlayerService
         StateChanged?.Invoke();
     }
 
+    /// <summary>다음 트랙 순서 바꾸기 (끌어다 놓기) — 지금 곡 · 자동재생 구간 경계도 따라 옮긴다</summary>
+    public void MoveQueue(int from, int to)
+    {
+        if (from == to || from < 0 || from >= Queue.Count || to < 0 || to >= Queue.Count) return;
+        var t = Queue[from];
+        Queue.RemoveAt(from);
+        Queue.Insert(to, t);
+        if (from == Index) Index = to;
+        else if (from < Index && to >= Index) Index--;
+        else if (from > Index && to <= Index) Index++;
+        if (from >= AutoStart && to < AutoStart) AutoStart++;
+        else if (from < AutoStart && to >= AutoStart) AutoStart--;
+        QueueChanged?.Invoke();
+        if (Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
+    }
+
     /// <summary>목록에서 뺀다 (지금 곡은 못 뺌)</summary>
     public void RemoveFromQueue(int index)
     {

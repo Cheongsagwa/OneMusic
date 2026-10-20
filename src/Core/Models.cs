@@ -57,6 +57,8 @@ public sealed record Shelf(string Title, List<Card> Items, List<Track>? Tracks =
     /// <summary>셸프 머리 '더보기' (예: 새 앨범 및 싱글 → 전체, 아티스트 앨범 → 모두)</summary>
     public string? MoreBrowseId { get; init; }
     public string? MoreParams { get; init; }
+    /// <summary>세로 곡 목록 셸프 (musicShelfRenderer — 기록 · 보관함 노래)</summary>
+    public bool List { get; init; }
     /// <summary>보관함처럼 줄바꿈 격자로 보여 줄 셸프</summary>
     public bool Grid { get; init; }
     /// <summary>제목 위 작은 글씨 (예: 다시 듣기 위의 내 이름)</summary>

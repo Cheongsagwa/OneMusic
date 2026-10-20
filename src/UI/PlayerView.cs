@@ -292,6 +292,7 @@ public sealed class PlayerView : Grid
                 var row = new TrackRow(q[i], divider: i < to - 1 && i != _p.Index && i + 1 != _p.Index);
                 row.Click += r => _ = _p.PlayAt(idx);
                 row.QueueIndex = idx;
+                EnableDrag(row, idx);
                 row.SetCurrent(i == _p.Index);
                 _rows.Add(row);
                 into.Children.Add(row);
@@ -378,6 +379,37 @@ public sealed class PlayerView : Grid
         }
         sv.Loaded += (_, _) => sv.ChangeView(offset, null, null, true);
         return sv;
+    }
+
+    /// <summary>다음 트랙 줄 끌어서 순서 바꾸기 (YT Music 처럼) — 놓을 자리에 흰 줄이 보인다</summary>
+    private void EnableDrag(TrackRow row, int idx)
+    {
+        row.CanDrag = true;
+        row.AllowDrop = true;
+        var line = new XRect { Height = 2, RadiusX = 1, RadiusY = 1, Fill = Theme.B(Colors.White), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, -1, 12, 0), Opacity = 0, IsHitTestVisible = false };
+        row.Children.Add(line);
+        row.DragStarting += (_, e) =>
+        {
+            e.Data.SetText($"queue:{idx}");
+            e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+            Anim.Opacity(row, 0.4f, Anim.Fast);
+        };
+        row.DropCompleted += (_, _) => Anim.Opacity(row, 1, Anim.Medium);
+        row.DragOver += (_, e) =>
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+            e.DragUIOverride.IsCaptionVisible = false;
+            line.Opacity = 1;
+        };
+        row.DragLeave += (_, _) => line.Opacity = 0;
+        row.Drop += async (_, e) =>
+        {
+            line.Opacity = 0;
+            if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text)) return;
+            var text = await e.DataView.GetTextAsync();
+            if (text.StartsWith("queue:") && int.TryParse(text[6..], out var from))
+                _p.MoveQueue(from, from < idx ? idx - 1 : idx);
+        };
     }
 
     /// <summary>다음 트랙 '저장' — 지금 목록(자동재생 구간 빼고)을 새 재생목록으로 또는 내 재생목록에</summary>

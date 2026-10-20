@@ -192,6 +192,7 @@ public static class Icons
     public const string Bell = "M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z M10 20.5h4";
     public const string Keyboard = "M4 6.5h16v11H4z M7.5 10h1 M11.5 10h1 M15.5 10h1 M8 14h8";
     public const string SortLines = "M4 7h16 M4 12h11 M4 17h6";
+    public const string History = "M4.5 12a7.5 7.5 0 1 0 2.2-5.3 M4.5 4.5v3h3 M12 8v4.2l2.8 1.8";
     public const string ChevronRight = "M9.4 6l6 6-6 6";
     public const string Link = "M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1 M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1";
     public const string Radio = "M12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z M8.6 8.6a4.8 4.8 0 0 0 0 6.8 M15.4 8.6a4.8 4.8 0 0 1 0 6.8 M5.8 5.8a8.8 8.8 0 0 0 0 12.4 M18.2 5.8a8.8 8.8 0 0 1 0 12.4";

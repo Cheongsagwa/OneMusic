@@ -118,6 +118,11 @@ public sealed class MainWindow : Window
         Tip.Set(_fwdBtn, "앞으로");
         rightBar.Children.Add(_backBtn);
         rightBar.Children.Add(_fwdBtn);
+        // 기록 (최근 재생)
+        var history = new IconButton(40) { Content = Theme.Icon(Icons.History, 24, Colors.White, stroke: true, strokeWidth: 1.8) };
+        Tip.Set(history, "기록");
+        history.Click += () => OpenBrowse("FEmusic_history");
+        rightBar.Children.Add(history);
         var settings = new IconButton(40) { Content = Theme.Icon(24, Colors.White, Icons.Settings), Margin = new Thickness(16, 0, 0, 0) };
         Tip.Set(settings, "계정");
         settings.Click += () => AccountMenu.Show(this, settings);

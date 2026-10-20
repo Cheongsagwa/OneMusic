@@ -411,6 +411,30 @@ public sealed class ShelvesView : ScrollPage
         if (s.Strapline != null) titles.Children.Add(Theme.Text(s.Strapline, 14, FontWeights.Normal, Theme.Secondary));
         titles.Children.Add(Theme.Text(s.Title, 22, FontWeights.ExtraBold, Theme.OnSurface));
         head.Children.Add(titles);
+        if (s.List && s.Tracks is { Count: > 0 } listTracks)
+        {
+            // 세로 곡 목록 (기록 · 보관함 노래): 둥근 카드 안의 줄들 (pear 14 · 48)
+            if (s.Title.Length > 0) box.Children.Add(head);
+            var rows = new StackPanel();
+            for (var i = 0; i < listTracks.Count; i++)
+            {
+                var t = listTracks[i];
+                var row = new TrackRow(t, divider: i < listTracks.Count - 1, subtitle: t.Album != null ? $"{t.Artist} • {t.Album}" : null);
+                row.Click += r => _ = PlayerService.Instance.PlaySong(r.Track);
+                rows.Children.Add(row);
+            }
+            box.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(Theme.RadiusCard),
+                Background = Theme.B(Color.FromArgb(14, 255, 255, 255)),
+                Padding = new Thickness(8),
+                Child = rows,
+                Margin = new Thickness(Left, 0, 40, 0),
+                MaxWidth = 1100,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            });
+            return box;
+        }
         if (s.Grid)
         {
             // 보관함: 줄바꿈 격자 (pear 의 보관함 화면)

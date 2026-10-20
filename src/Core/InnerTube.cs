@@ -498,7 +498,8 @@ public sealed class InnerTube
         {
             var title = ms.P("title").Text();
             var (cards, tracks) = ParseItems(ms.P("contents") as JsonArray);
-            if (tracks.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "노래", cards, tracks));
+            // 세로 목록(기록 · 보관함 노래 · 좋아요 표시한 음악 …) — 화면에서도 세로로
+            if (tracks.Count > 0) shelves.Add(new Shelf(title.Length > 0 ? title : "노래", cards, tracks) { List = true });
         }
         return shelves;
     }
