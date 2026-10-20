@@ -221,7 +221,10 @@ public sealed class PlayerService
             var data = await fetch(CancellationToken.None);
             if (v != _autoVersion) return;
             // 지금 곡이 자동재생 구간에 있으면 그 곡까지는 남긴다 (라디오는 지금 곡 뒤를 통째로 바꾼다)
-            var keep = Queue.Take(Radio ? Index + 1 : Math.Max(AutoStart, Index + 1)).ToList();
+            // 알고리즘 칩(토글 없는 경우)은 지금 곡 바로 다음부터 통째로 바꾼다 (사용자 요청)
+            var fromNext = keepChips && !ShowAutoplayToggle || Radio;
+            var keep = Queue.Take(fromNext ? Index + 1 : Math.Max(AutoStart, Index + 1)).ToList();
+            if (fromNext) AutoStart = Math.Min(AutoStart, Index + 1);
             var known = keep.Select(t => t.VideoId).ToHashSet();
             Queue = keep.Concat(data.Tracks.Where(t => known.Add(t.VideoId))).ToList();
             if (!keepChips || AutoChips.Count == 0) AutoChips = data.Chips;
