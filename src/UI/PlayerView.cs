@@ -282,9 +282,9 @@ public sealed class PlayerView : Grid
                 into.Children.Add(row);
             }
         }
-        // 라디오: 칩이 맨 위, 목록은 하나로 (YT Music 과 같게 자동재생 줄 없음)
-        _autoRow.Visibility = _p.Radio ? Visibility.Collapsed : Visibility.Visible;
-        if (_p.Radio)
+        // 검색에서 튼 곡이 아니면: 알고리즘 칩이 맨 위, 목록은 하나로 (자동재생 토글 없음)
+        _autoRow.Visibility = _p.ShowAutoplayToggle ? Visibility.Visible : Visibility.Collapsed;
+        if (!_p.ShowAutoplayToggle)
         {
             if (_p.AutoChips.Count > 0) _queue.Children.Add(BuildAutoChips());
             var all = new StackPanel { Spacing = 2 };
@@ -295,7 +295,8 @@ public sealed class PlayerView : Grid
                 w.Margin = new Thickness(16, 8, 8, 8);
                 all.Children.Add(w);
             }
-            Anim.Opacity(all, _p.AutoLoading && q.Count > 1 ? 0.45f : 1f, 220);
+            // 칩을 바꿔 다시 받는 동안: 지금 곡까지는 그대로, 그 뒤만 흐리게
+            for (var k = _p.Index + 1; k < _rows.Count; k++) Anim.Opacity(_rows[k], _p.AutoLoading && q.Count > 1 ? 0.45f : 1f, 220);
             _queue.Children.Add(all);
             return;
         }

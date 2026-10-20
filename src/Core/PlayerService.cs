@@ -40,6 +40,11 @@ public sealed class PlayerService
     /// 칩이 목록 맨 위에 붙는다 (자동재생 줄 · '자동재생 사용 중' 구분 없음)
     /// </summary>
     public bool Radio { get; private set; }
+    /// <summary>
+    /// 자동재생 토글이 보이는지 — 검색에서 곡을 틀었을 때만 (pear 와 같게).
+    /// 나머지(홈 카드 · 앨범 · 플레이리스트 · 라디오)는 토글 대신 알고리즘 칩이 맨 위에 오고, 목록은 늘 이어서 튼다
+    /// </summary>
+    public bool ShowAutoplayToggle { get; private set; }
     private int _autoVersion;
 
     /// <summary>자동재생 — 목록 끝에 다다르면 비슷한 곡을 이어서 튼다</summary>
@@ -50,7 +55,7 @@ public sealed class PlayerService
         {
             Settings.Current.Autoplay = value;
             QueueChanged?.Invoke();
-            if (value && !Radio && AutoStart >= Queue.Count && Queue.Count > 0) _ = LoadAuto(Queue[^1].VideoId, null, null);
+            if (value && ShowAutoplayToggle && AutoStart >= Queue.Count && Queue.Count > 0) _ = LoadAuto(Queue[^1].VideoId, null, null);
         }
     }
     public bool Loading { get; private set; }
@@ -134,12 +139,13 @@ public sealed class PlayerService
     // ───────────────────────── 조작 ─────────────────────────
 
     /// <summary>곡 하나를 틀고, 그 곡으로 시작하는 라디오를 다음 트랙으로 채운다</summary>
-    public async Task PlaySong(Track t)
+    public async Task PlaySong(Track t, bool fromSearch = false)
     {
+        ShowAutoplayToggle = fromSearch;
         Queue = new List<Track> { t };
         Index = 0;
         AutoStart = 1;
-        Radio = true;
+        Radio = !fromSearch;
         AutoChips = new();
         QueueTitle = null;
         RelatedBrowseId = null;
@@ -181,11 +187,12 @@ public sealed class PlayerService
         AutoStart = Queue.Count;
         AutoChips = new();
         Radio = false;
+        ShowAutoplayToggle = false;
         Index = Math.Clamp(start, 0, list.Count - 1);
         var version = ++_autoVersion;
         QueueChanged?.Invoke();
         var load = Load();
-        if (Autoplay) _ = LoadAuto(automixPlaylistId == null ? list[^1].VideoId : null, automixPlaylistId, automixParams, version);
+        _ = LoadAuto(automixPlaylistId == null ? list[^1].VideoId : null, automixPlaylistId, automixParams, version);
         await load;
     }
 
@@ -216,7 +223,7 @@ public sealed class PlayerService
             Queue = keep.Concat(data.Tracks.Where(t => known.Add(t.VideoId))).ToList();
             if (!keepChips || AutoChips.Count == 0) AutoChips = data.Chips;
             RelatedBrowseId ??= data.RelatedBrowseId;
-            if ((Autoplay || Radio) && Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
+            if ((Autoplay || !ShowAutoplayToggle) && Index + 1 < Queue.Count) StreamResolver.Instance.Prefetch(Queue[Index + 1].VideoId);
         }
         catch (Exception e) { Log.Warn($"자동재생 목록 불러오기 실패: {e.Message}"); }
         finally
@@ -298,12 +305,12 @@ public sealed class PlayerService
     {
         if (Queue.Count == 0) return;
         // 자동재생을 끄면 자동재생 구간은 건너뛴다 (목록 끝 = 사용자가 고른 곡 끝)
-        var end = Autoplay || Radio ? Queue.Count : Math.Min(AutoStart, Queue.Count);
+        var end = Autoplay || !ShowAutoplayToggle ? Queue.Count : Math.Min(AutoStart, Queue.Count);
         if (Index + 1 < end) Index++;
         else if (Repeat == RepeatMode.All) Index = 0;
         else
         {
-            if (!Autoplay) return;
+            if (!Autoplay && ShowAutoplayToggle) return;
             await Extend();
             if (Index + 1 >= Queue.Count) return;
             Index++;

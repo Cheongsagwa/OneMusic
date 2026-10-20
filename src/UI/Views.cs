@@ -497,7 +497,7 @@ public sealed class SearchView : ScrollPage
     {
         if (it.Track is { } t)
         {
-            _ = PlayerService.Instance.PlaySong(t);
+            _ = PlayerService.Instance.PlaySong(t, fromSearch: true);
             return;
         }
         if (it.BrowseId != null) App.MainWin?.OpenBrowse(it.BrowseId);
