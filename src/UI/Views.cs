@@ -419,9 +419,9 @@ public sealed class ShelvesView : ScrollPage
             for (var i = 0; i < listTracks.Count; i++)
             {
                 var t = listTracks[i];
-                var row = new TrackRow(t, divider: i < listTracks.Count - 1, subtitle: t.Album != null ? $"{t.Artist} • {t.Album}" : null);
-                row.Click += r => _ = PlayerService.Instance.PlaySong(r.Track);
-                rows.Children.Add(row);
+                var tr = new TrackRow(t, divider: i < listTracks.Count - 1, subtitle: t.Album != null ? $"{t.Artist} • {t.Album}" : null);
+                tr.Click += r => _ = PlayerService.Instance.PlaySong(r.Track);
+                rows.Children.Add(tr);
             }
             box.Children.Add(new Border
             {

@@ -173,7 +173,6 @@ public sealed class MainWindow : Window
 
         // 재생 화면 (상단 바 · 레일까지 덮음)
         PlayerPage = new PlayerView();
-        PlayerPage.CloseRequested += ClosePlayer;
         Grid.SetRow(PlayerPage, 1);
         Grid.SetRowSpan(PlayerPage, 2);
         Grid.SetColumnSpan(PlayerPage, 2);

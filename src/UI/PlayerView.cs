@@ -93,7 +93,6 @@ public sealed class PlayerView : Grid
     private readonly Grid _panel;
     private readonly Grid _left = new();
     public bool IsOpen { get; private set; }
-    public event Action? CloseRequested;
 
     public PlayerView()
     {
