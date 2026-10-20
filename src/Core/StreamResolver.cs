@@ -20,7 +20,7 @@ public sealed class StreamResolver
 
     private readonly Dictionary<string, Task<string>> _prefetch = new();
     private readonly HttpClient _media = new(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromMinutes(2) };
-    /// <summary>오디오 파일 자체 (곡 하나 4~6MB) — 지금 곡 + 미리 받은 다음 곡만 들고 있는다</summary>
+    /// <summary>오디오 파일 자체 (곡 하나 4~6MB, 30분짜리는 30MB 정도) — 최근 3곡만 들고 있는다</summary>
     private readonly Dictionary<string, Task<byte[]>> _audio = new();
 
     /// <summary>
@@ -44,43 +44,65 @@ public sealed class StreamResolver
     /// <summary>다음 곡을 미리 받아 둔다 (곡이 바뀔 때 바로 시작되게)</summary>
     public void Prefetch(string videoId) => _ = Audio(videoId, false, CancellationToken.None).ContinueWith(_ => { });
 
+    /// <summary>
+    /// 2MB 조각으로 나눠 동시에 6개씩 받는다.
+    /// YouTube 는 큰 파일을 한 번에 달라고 하면 재생 속도 정도로 느리게 줘서, 30분 넘는 곡은 시간 안에 다 못 받았다
+    /// </summary>
     private async Task<byte[]> Download(string videoId, bool fresh)
     {
         var url = await Resolve(videoId, fresh, CancellationToken.None);
         var sw = Stopwatch.StartNew();
-        try
+        const int chunk = 2 << 20;
+        var first = await Range(url, 0, chunk - 1);
+        var total = first.Total ?? first.Data.Length;
+        var bytes = new byte[total];
+        first.Data.CopyTo(bytes, 0);
+        if (total > first.Data.Length)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            req.Headers.TryAddWithoutValidation("Range", "bytes=0-");
-            using var res = await _media.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
-            res.EnsureSuccessStatusCode();
-            var bytes = await res.Content.ReadAsByteArrayAsync();
-            var fixedCount = Mp4Fix.NeutralizeEditLists(bytes);
-            Log.Info($"오디오 받음 {videoId}: {bytes.Length / 1024} KB / {sw.ElapsedMilliseconds} ms{(fixedCount > 0 ? " (편집 목록 정리)" : "")}");
-            return bytes;
-        }
-        catch (Exception e)
-        {
-            // 한 번에 안 주면 1MB 씩 나눠서
-            Log.Warn($"통째로 받기 실패 ({e.Message}) → 나눠 받기");
-            using var ms = new MemoryStream();
-            const int chunk = 1 << 20;
-            long total = long.MaxValue;
-            for (long start = 0; start < total; start += chunk)
+            using var gate = new SemaphoreSlim(6);
+            var tasks = new List<Task>();
+            for (long start = first.Data.Length; start < total; start += chunk)
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                req.Headers.TryAddWithoutValidation("Range", $"bytes={start}-{start + chunk - 1}");
-                using var res = await _media.SendAsync(req);
-                res.EnsureSuccessStatusCode();
-                total = res.Content.Headers.ContentRange?.Length ?? total;
-                var part = await res.Content.ReadAsByteArrayAsync();
-                ms.Write(part);
-                if (part.Length < chunk && total == long.MaxValue) break;
+                var from = start;
+                var to = Math.Min(start + chunk, total) - 1;
+                tasks.Add(Task.Run(async () =>
+                {
+                    await gate.WaitAsync();
+                    try
+                    {
+                        // 조각 하나가 실패하면 두 번까지 다시
+                        for (var attempt = 0; ; attempt++)
+                        {
+                            try
+                            {
+                                var part = await Range(url, from, to);
+                                part.Data.CopyTo(bytes, from);
+                                return;
+                            }
+                            catch when (attempt < 2) { await Task.Delay(300 * (attempt + 1)); }
+                        }
+                    }
+                    finally { gate.Release(); }
+                }));
             }
-            var all = ms.ToArray();
-            Mp4Fix.NeutralizeEditLists(all);
-            return all;
+            await Task.WhenAll(tasks);
         }
+        var fixedCount = Mp4Fix.NeutralizeEditLists(bytes);
+        Log.Info($"오디오 받음 {videoId}: {bytes.Length / 1024} KB / {sw.ElapsedMilliseconds} ms{(fixedCount > 0 ? " (편집 목록 정리)" : "")}");
+        return bytes;
+    }
+
+    private async Task<(byte[] Data, long? Total)> Range(string url, long from, long to)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("Range", $"bytes={from}-{to}");
+        using var res = await _media.SendAsync(req);
+        res.EnsureSuccessStatusCode();
+        var data = await res.Content.ReadAsByteArrayAsync();
+        // 범위를 무시하고 전체(200)를 주면 그게 곧 전부
+        long? total = res.StatusCode == System.Net.HttpStatusCode.PartialContent ? res.Content.Headers.ContentRange?.Length : data.Length;
+        if (from > 0 && data.Length != to - from + 1) throw new IOException($"조각 크기 이상 {data.Length}/{to - from + 1}");
+        return (data, total);
     }
 
     public async Task<string> Resolve(string videoId, bool useFallback, CancellationToken ct)
