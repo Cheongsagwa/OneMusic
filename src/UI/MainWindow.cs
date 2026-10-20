@@ -208,7 +208,7 @@ public sealed class MainWindow : Window
         _search.TextChanged += OnSearchText;
         // 추천 줄은 글자가 아니라 화면 요소라서, 고를 때 입력칸 글자를 바꾸지 않는다
         _search.UpdateTextOnSelect = false;
-        _search.QuerySubmitted += (_, e) =>
+        _search.QuerySubmitted += (box, e) =>
         {
             if (e.ChosenSuggestion is FrameworkElement { Tag: SearchItem it })
             {
