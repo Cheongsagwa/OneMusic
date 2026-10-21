@@ -323,7 +323,9 @@ public sealed class LyricsView : Grid
             var y = top - _scroll;
             if (y + lh < -24 || y > h + 24) continue;
             // 위 · 아래 끝에서는 흐려진다
-            var edge = Math.Clamp(Math.Min((y + lh) / FadeTop, (h - y) / FadeBottom), 0, 1);
+            // 줄 전체가 칸 안에 들어와야 진해진다 — 위는 줄 윗변, 아래는 줄 아랫변 기준 (아래 끝에서 글자가 반쯤 잘려 보이던 것)
+            var edge = Math.Clamp(Math.Min((y + 8) / FadeTop, (h - (y + lh) - 4) / FadeBottom), 0, 1);
+            edge = edge * edge * (3 - 2 * edge);
             if (edge <= 0.01f) continue;
             var g = _glow[i];
             var text = string.IsNullOrEmpty(lines[i].Text) ? "♪" : lines[i].Text;

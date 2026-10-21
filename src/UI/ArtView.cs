@@ -71,10 +71,19 @@ public sealed class ArtView : Grid
         Load(u, fallback, gen);
     }
 
-    private void Load(string url, string? fallback, int gen)
+    private async void Load(string url, string? fallback, int gen)
     {
+        // 바이트는 캐시에서 (다음 곡 아트는 미리 받아 둔다 → 곡이 바뀌면 바로)
+        byte[] bytes;
+        try { bytes = await ImageCache.Get(url); }
+        catch
+        {
+            if (gen == _gen && fallback != null && fallback != url) Load(fallback, null, gen);
+            return;
+        }
+        if (gen != _gen) return;
         LoadedImageSurface surface;
-        try { surface = LoadedImageSurface.StartLoadFromUri(new Uri(url), new Size(_decode * 2, _decode * 2)); }
+        try { surface = LoadedImageSurface.StartLoadFromStream(new MemoryStream(bytes).AsRandomAccessStream(), new Size(_decode * 2, _decode * 2)); }
         catch (Exception e) { Log.Warn($"아트 불러오기 실패: {e.Message}"); return; }
         surface.LoadCompleted += (s, e) =>
         {
@@ -168,14 +177,17 @@ public sealed class AmbientGlow : Grid
         Resize();
     }
 
-    /// <summary>빛은 아트보다 사방으로 18% 더 크게</summary>
+    /// <summary>
+    /// 빛은 아트보다 사방으로 12% 더 크게. 가장자리는 둥근 그라데이션으로 0 까지 흐려서
+    /// 재생 화면 칸 경계에 잘려도 네모난 모서리가 보이지 않게 한다
+    /// </summary>
     private void Resize()
     {
         if (_root == null) return;
         var w = (float)ActualWidth;
         var h = (float)ActualHeight;
-        _root.Size = new Vector2(w * 1.36f, h * 1.36f);
-        _root.Offset = new Vector3(-w * 0.18f, -h * 0.18f, 0);
+        _root.Size = new Vector2(w * 1.24f, h * 1.24f);
+        _root.Offset = new Vector3(-w * 0.12f, -h * 0.12f, 0);
         foreach (var v in _root.Children.OfType<SpriteVisual>()) v.Size = _root.Size;
     }
 
@@ -189,10 +201,18 @@ public sealed class AmbientGlow : Grid
         Load(u, fallback, gen);
     }
 
-    private void Load(string url, string? fallback, int gen)
+    private async void Load(string url, string? fallback, int gen)
     {
+        byte[] bytes;
+        try { bytes = await ImageCache.Get(url); }
+        catch
+        {
+            if (gen == _gen && fallback != null) Load(fallback, null, gen);
+            return;
+        }
+        if (gen != _gen || _root == null) return;
         LoadedImageSurface surface;
-        try { surface = LoadedImageSurface.StartLoadFromUri(new Uri(url), new Size(96, 96)); }
+        try { surface = LoadedImageSurface.StartLoadFromStream(new MemoryStream(bytes).AsRandomAccessStream(), new Size(96, 96)); }
         catch { return; }
         surface.LoadCompleted += (s, e) =>
         {
@@ -215,8 +235,18 @@ public sealed class AmbientGlow : Grid
             art.Stretch = CompositionStretch.UniformToFill;
             var brush = _factory.CreateBrush();
             brush.SetSourceParameter("art", art);
+            // 가운데는 진하고 바깥으로 갈수록 0 — 네모난 가장자리가 생기지 않는 둥근 빛
+            var fade = c.CreateRadialGradientBrush();
+            fade.EllipseCenter = new Vector2(0.5f, 0.5f);
+            fade.EllipseRadius = new Vector2(0.5f, 0.5f);
+            fade.ColorStops.Add(c.CreateColorGradientStop(0f, Colors.Black));
+            fade.ColorStops.Add(c.CreateColorGradientStop(0.55f, Color.FromArgb(200, 0, 0, 0)));
+            fade.ColorStops.Add(c.CreateColorGradientStop(1f, Color.FromArgb(0, 0, 0, 0)));
+            var masked = c.CreateMaskBrush();
+            masked.Source = brush;
+            masked.Mask = fade;
             var sprite = c.CreateSpriteVisual();
-            sprite.Brush = brush;
+            sprite.Brush = masked;
             sprite.Size = _root.Size;
             sprite.Opacity = 0;
             _root.Children.InsertAtTop(sprite);
@@ -245,7 +275,12 @@ public sealed class AmbientGlow : Grid
         old.StartAnimation("Opacity", a);
         await Task.Delay(950);
         _root?.Children.Remove(old);
-        (old.Brush as CompositionEffectBrush)?.GetSourceParameter("art")?.Dispose();
+        if (old.Brush is CompositionMaskBrush mb)
+        {
+            (mb.Source as CompositionEffectBrush)?.GetSourceParameter("art")?.Dispose();
+            mb.Source?.Dispose();
+            mb.Mask?.Dispose();
+        }
         old.Brush?.Dispose();
         old.Dispose();
         oldSurface?.Dispose();

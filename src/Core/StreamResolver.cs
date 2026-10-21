@@ -55,7 +55,15 @@ public sealed class StreamResolver
         var url = await Resolve(videoId, fresh, CancellationToken.None);
         var sw = Stopwatch.StartNew();
         const int chunk = 2 << 20;
-        var first = await Range(url, 0, chunk - 1);
+        (byte[] Data, long? Total) first;
+        try { first = await Range(url, 0, chunk - 1); }
+        catch (Exception e) when (!fresh)
+        {
+            // 빠른 길로 받은 주소가 막혔으면 yt-dlp 주소로 한 번 더
+            Log.Warn($"오디오 첫 조각 실패 ({e.Message}) → 새 주소로");
+            url = await Resolve(videoId, true, CancellationToken.None);
+            first = await Range(url, 0, chunk - 1);
+        }
         var total = first.Total ?? first.Data.Length;
         var bytes = new byte[total];
         first.Data.CopyTo(bytes, 0);
@@ -114,7 +122,7 @@ public sealed class StreamResolver
         string? url = null;
         lock (_cache) if (_cache.TryGetValue(videoId, out var c)) url = c.Url;
         if (Offline.Instance.Has(videoId)) list.Add(("출처", "오프라인 저장"));
-        else list.Add(("출처", url != null ? "yt-dlp (YouTube)" : "-"));
+        else list.Add(("출처", url != null ? (LastSource == "innertube" ? "YouTube (직접)" : "yt-dlp (YouTube)") : "-"));
         if (url != null)
         {
             var q = System.Web.HttpUtility.ParseQueryString(new Uri(url).Query);
@@ -151,6 +159,22 @@ public sealed class StreamResolver
                 return c.Url;
         }
         string url;
+        // 1차: YouTube 내부 API 를 직접 (0.2~0.5초). yt-dlp 는 실행할 때마다 압축을 풀고 페이지를 받느라 2~3초 걸린다
+        if (!useFallback)
+        {
+            try
+            {
+                var fast = await ViaInnerTube(videoId, ct);
+                if (fast != null)
+                {
+                    Remember(videoId, fast);
+                    LastSource = "innertube";
+                    return fast;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception e) { Log.Warn($"빠른 주소 받기 실패 ({videoId}): {e.Message} → yt-dlp"); }
+        }
         try { url = await ViaYtDlp(videoId, ct); }
         catch (Exception e) when (e is not OperationCanceledException && !_updatedAfterFail)
         {
@@ -162,6 +186,75 @@ public sealed class StreamResolver
         }
         Remember(videoId, url);
         LastSource = "yt-dlp";
+        return url;
+    }
+
+    private readonly HttpClient _player = new(new SocketsHttpHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+    })
+    { Timeout = TimeSpan.FromSeconds(6) };
+
+    private const string VrVersion = "1.65.10";
+    private const string VrAgent = "com.google.android.apps.youtube.vr.oculus/" + VrVersion +
+                                   " (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
+
+    /// <summary>
+    /// YouTube 내부 player API 를 ANDROID_VR 클라이언트로 불러 오디오 주소를 바로 받는다
+    /// (이 클라이언트는 서명 풀기 · PoToken 이 필요 없는 주소를 준다 — yt-dlp 도 같은 방법을 쓴다).
+    /// 재생할 수 없는 응답이면 null → yt-dlp 로
+    /// </summary>
+    private async Task<string?> ViaInnerTube(string videoId, CancellationToken ct)
+    {
+        var body = new JsonObject
+        {
+            ["context"] = new JsonObject
+            {
+                ["client"] = new JsonObject
+                {
+                    ["clientName"] = "ANDROID_VR",
+                    ["clientVersion"] = VrVersion,
+                    ["deviceMake"] = "Oculus",
+                    ["deviceModel"] = "Quest 3",
+                    ["androidSdkVersion"] = 32,
+                    ["osName"] = "Android",
+                    ["osVersion"] = "12L",
+                    ["hl"] = "ko",
+                    ["gl"] = "KR",
+                },
+            },
+            ["videoId"] = videoId,
+            ["contentCheckOk"] = true,
+            ["racyCheckOk"] = true,
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+        {
+            Content = new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("User-Agent", VrAgent);
+        req.Headers.TryAddWithoutValidation("X-YouTube-Client-Name", "28");
+        req.Headers.TryAddWithoutValidation("X-YouTube-Client-Version", VrVersion);
+        var sw = Stopwatch.StartNew();
+        using var res = await _player.SendAsync(req, ct);
+        if (!res.IsSuccessStatusCode) return null;
+        var json = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        var status = json.P("playabilityStatus", "status").Str();
+        if (status != "OK")
+        {
+            Log.Info($"빠른 주소: {videoId} 재생 불가 ({status}) → yt-dlp");
+            return null;
+        }
+        if (json.P("streamingData", "adaptiveFormats") is not JsonArray formats) return null;
+        // 서명 없이 바로 쓸 수 있는 주소가 있는 오디오만, Windows 재생기가 확실히 여는 AAC(mp4) 우선
+        var audio = formats
+            .Where(f => (f.P("mimeType").Str() ?? "").StartsWith("audio/") && f.P("url").Str() != null)
+            .OrderByDescending(f => (f.P("mimeType").Str() ?? "").StartsWith("audio/mp4") ? 1 : 0)
+            .ThenByDescending(f => (long?)f?["bitrate"]?.GetValue<double>() ?? 0)
+            .FirstOrDefault();
+        var url = audio.P("url").Str();
+        if (url == null || !(audio.P("mimeType").Str() ?? "").StartsWith("audio/mp4")) return null;
+        Log.Info($"빠른 주소 받음 {videoId}: itag {audio.P("itag").Str()} / {sw.ElapsedMilliseconds} ms");
         return url;
     }
 

@@ -134,7 +134,7 @@ public static class Theme
     /// </summary>
     public static (string? Url, string? Fallback) ImageUrl(string? url, int decodeWidth)
     {
-        var u = Core.Fmt.Thumb(url, Math.Max(decodeWidth * 2, 120));
+        var u = Core.Fmt.Thumb(url, Math.Clamp(decodeWidth * 3 / 2, 120, 1000)); // 너무 큰 그림은 받는 데 오래 걸린다
         string? fallback = null;
         if (u != null)
         {

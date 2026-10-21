@@ -751,6 +751,12 @@ public sealed class MainWindow : Window
             _notifiedFor = t.VideoId;
             Notifier.TrackChanged(t, IsActiveWindow);
         }
+        // 다음 곡 아트를 미리 받아 둔다 (재생 바 · 재생 화면 · 앰비언트 빛 크기 모두) → 곡이 바뀌면 바로 보이게
+        if (Player.Index + 1 < Player.Queue.Count)
+        {
+            var nextThumb = Player.Queue[Player.Index + 1].Thumb;
+            foreach (var size in new[] { 104, 670, 48 }) ImageCache.Prefetch(Theme.ImageUrl(nextThumb, size).Url);
+        }
         var c = await AlbumColor.FromUrl(t.Thumb);
         if (Player.Current?.VideoId != t.VideoId) return;
         _accent = c;
