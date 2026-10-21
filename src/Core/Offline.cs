@@ -9,11 +9,13 @@ namespace OneMusic.Core;
 /// </summary>
 public sealed class Offline
 {
-    public static Offline Instance { get; } = new();
-
     private static readonly string Dir = IOPath.Combine(Log.AppDataDir, "offline");
     private static readonly string IndexPath = IOPath.Combine(Dir, "index.json");
     public static string DownloadDir { get; } = IOPath.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "OneMusic");
+
+    // ⚠️ 정적 필드는 위에서부터 차례로 만들어진다 — Instance 를 위 경로들보다 먼저 만들면
+    // 생성자 안에서 Dir 이 아직 null 이라 '형식 초기화 오류'로 ⋮ 메뉴 · 재생이 통째로 막혔다
+    public static Offline Instance { get; } = new();
 
     private readonly List<Track> _tracks;
     /// <summary>저장한 곡 ID (재생할 때마다 물어보므로 목록을 훑지 않게)</summary>
